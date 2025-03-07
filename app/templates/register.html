@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Регистрация</title>
+</head>
+<body>
+    <h2>Регистрация</h2>
+    <form id="registerForm">
+        <label for="first_name">Имя:</label><br>
+        <input type="text" id="first_name" name="first_name" required><br><br>
+
+        <label for="last_name">Фамилия:</label><br>
+        <input type="text" id="last_name" name="last_name" required><br><br>
+
+        <label for="email">Email:</label><br>
+        <input type="email" id="email" name="email" required><br><br>
+
+        <label for="phone">Телефон:</label><br>
+        <input type="text" id="phone" name="phone" required><br><br>
+
+        <label for="address">Адрес:</label><br>
+        <input type="text" id="address" name="address" required><br><br>
+
+        <label for="password">Пароль:</label><br>
+        <input type="password" id="password" name="password" required><br><br>
+
+        <input type="submit" value="Зарегистрироваться">
+    </form>
+
+    <script>
+        document.getElementById('registerForm').addEventListener('submit', async function(event) {
+            event.preventDefault();
+
+            const formData = new FormData(event.target);
+            const data = {
+                first_name: formData.get('first_name'),
+                last_name: formData.get('last_name'),
+                email: formData.get('email'),
+                phone: formData.get('phone'),
+                address: formData.get('address'),
+                password: formData.get('password')
+            };
+
+            const response = await fetch('/register', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify(data)
+            });
+
+            const result = await response.json();
+            if (response.ok) {
+                alert('Регистрация прошла успешно');
+            } else {
+                alert('Ошибка регистрации: ' + result.detail);
+            }
+        });
+    </script>
+</body>
+</html>

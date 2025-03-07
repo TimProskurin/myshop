@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ product.product_name }}</title>
+    <style>
+        /* Общие стили */
+        body {
+            font-family: 'Arial', sans-serif;
+            background-color: #f4f4f9;
+            margin: 0;
+            padding: 0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+        }
+
+        .container {
+            background-color: #fff;
+            border-radius: 10px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.1);
+            width: 80%;
+            max-width: 800px;
+            padding: 20px;
+            transition: all 0.3s ease;
+        }
+
+        .container:hover {
+            transform: scale(1.05);
+        }
+
+        /* Заголовок */
+        h1 {
+            font-size: 2.5rem;
+            color: #333;
+            text-align: center;
+            margin-bottom: 15px;
+            animation: fadeIn 2s;
+        }
+
+        /* Описание продукта */
+        p {
+            font-size: 1.2rem;
+            color: #555;
+            line-height: 1.6;
+            margin-bottom: 10px;
+        }
+
+        /* Картинка */
+        .product-image {
+            width: 100%;
+            max-width: 400px;
+            display: block;
+            margin: 0 auto;
+            border-radius: 10px;
+            box-shadow: 0 8px 15px rgba(0, 0, 0, 0.1);
+            animation: fadeIn 1.5s ease;
+        }
+
+        /* Анимация для текста */
+        @keyframes fadeIn {
+            0% {
+                opacity: 0;
+            }
+            100% {
+                opacity: 1;
+            }
+        }
+
+        /* Кнопка */
+        .btn {
+            display: block;
+            width: 200px;
+            padding: 10px;
+            background-color: #007bff;
+            color: white;
+            text-align: center;
+            border-radius: 5px;
+            text-decoration: none;
+            margin: 20px auto 0;
+            font-size: 1.2rem;
+            transition: background-color 0.3s;
+        }
+
+        .btn:hover {
+            background-color: #0056b3;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>{{ product.product_name }}</h1>
+          <img src="/static/images/iphone.png" alt="iPhone" class="product-image">
+        <p><strong>Цена:</strong> {{ product.price }} руб.</p>
+        <p><strong>Описание:</strong> {{ product.description }}</p>
+        {% if product.long_description %}
+            <p><strong>Подробное описание:</strong> {{ product.long_description }}</p>
+        {% endif %}
+        <a href="/cart" class="btn">Добавить в корзину</a>
+    </div>
+</body>
+</html>

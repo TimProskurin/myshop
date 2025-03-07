@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Логин</title>
+  <link rel="stylesheet" href="{{ url_for('static', path='styles.css') }}">
+</head>
+<body>
+  <h1>Авторизация</h1>
+  {% if error %}
+    <p style="color: red;">{{ error }}</p>
+  {% endif %}
+  <form action="/login" method="post">
+    <div>
+      <label for="username">Email:</label>
+      <input type="text" id="username" name="username" placeholder="Введите email" required>
+    </div>
+    <div>
+      <label for="password">Пароль:</label>
+      <input type="password" id="password" name="password" placeholder="Введите пароль" required>
+    </div>
+    <button type="submit">Войти</button>
+  </form>
+</body>
+</html>

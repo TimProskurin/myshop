@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>{{category.category_name}}</title>
+  <!-- Подключение Google Fonts (Roboto) -->
+  <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;700&display=swap" rel="stylesheet">
+  <!-- Подключение CSS -->
+  <link rel="stylesheet" href="{{ url_for('static', path='styles.css') }}">
+</head>
+<body>
+  <header>
+    <nav>
+      <div class="logo">
+        <h1>Магазин</h1>
+      </div>
+      <ul class="nav-links">
+        <li><a href="/app/static">Главная</a></li>
+      </ul>
+    </nav>
+  </header>
+
+  <main>
+    <section class="category-header">
+      <h2>{{category.category_name}}</h2>
+      <p>{{category.description}}</p>
+    </section>
+
+    <section class="products">
+      <h2>Товары</h2>
+      <div class="product-grid">
+        {% for product in products %}
+          <div class="product-card">
+            <h3>{{product.product_name}}</h3>
+            <p>{{product.description}}</p>
+            <p class="price">$ {{product.price}}</p>
+            <p class="stock">В наличии: {{product.stock}}</p>
+            <button class="btn view-details-btn">Подробнее</button>
+          </div>
+        {% endfor %}
+      </div>
+    </section>
+
+    <a href="/app/static" class="back-link">← Назад к категориям</a>
+  </main>
+
+  <footer>
+    <p>&copy; 2025 Магазин. Все права защищены.</p>
+  </footer>
+
+  <!-- Подключение JavaScript -->
+  <script src="{{ url_for('static', path='script.js') }}"></script>
+</body>
+</html>

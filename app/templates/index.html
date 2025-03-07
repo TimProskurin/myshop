@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Наш интернет-магазин</title>
+  <!-- Подключение Google Fonts (Roboto) -->
+  <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;700&display=swap" rel="stylesheet">
+  <!-- Подключение CSS -->
+  <link rel="stylesheet" href="{{ url_for('static', path='styles.css') }}">
+</head>
+<body>
+  <header>
+    <nav>
+      <div class="logo">
+        <h1>Магазин</h1>
+      </div>
+      <ul class="nav-links">
+        <li><a href="/app/static">Главная</a></li>
+        <!-- Можно добавить дополнительные пункты меню -->
+      </ul>
+    </nav>
+  </header>
+
+  <main>
+    <section class="hero">
+      <h2>Добро пожаловать в наш интернет-магазин!</h2>
+      <p>Лучшие товары для вашего дома и офиса.</p>
+    </section>
+
+    <section class="categories">
+      <h2>Категории</h2>
+      <div class="category-grid">
+        {% for category in categories %}
+          <div class="category-card">
+            <h3>{{ category.category_name }}</h3>
+            <p>{{ category.description }}</p>
+            <a href="/category/{{ category.category_id }}" class="btn">Смотреть товары</a>
+          </div>
+        {% endfor %}
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <p>&copy; 2025 Магазин. Все права защищены.</p>
+  </footer>
+
+  <!-- Подключение JavaScript -->
+  <script src="{{ url_for('static', path='script.js') }}"></script>
+</body>
+</html>
