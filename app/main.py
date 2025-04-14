@@ -8,10 +8,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from app.database import get_async_session
 from app import models, schemas, security
-from app.models import Category, Product
+from app.models import Category, Product, User
 from app.schemas import UserCreate
 from app.security import verify_password
-
+import bcrypt
 application = FastAPI()
 templates = Jinja2Templates(directory="app/templates", auto_reload=True)
 application.mount("/static", StaticFiles(directory="app/static"), name="static")
@@ -22,30 +22,28 @@ async def get_db() -> AsyncGenerator[AsyncSession, None]:
     async with get_async_session() as session:
         yield session
 
-
-def authenticate_user(db: AsyncSession, email: str, password: str):
-    # Получаем пользователя по email
-    user = db.query(models.User).filter(models.User.email == email).first()
-    if user is None:
+async def authenticate_user(db: AsyncSession, email: str, password: str):
+    result = await db.execute(select(models.User).where(models.User.email == email))
+    user = result.scalars().first()
+    if not user:
         raise HTTPException(status_code=404, detail="Пользователь не найден")
-
-    # Сравниваем введенный пароль с хешированным в базе данных
-    if not verify_password(password, user.password):
+    if not bcrypt.checkpw(password.encode('utf-8'), user.password.encode('utf-8')):  # Сравниваем пароли
         raise HTTPException(status_code=401, detail="Неверный пароль")
-
     return user
 # Эндпоинт авторизации (логин)
 @application.post("/login")
 async def login(user: schemas.UserLogin, db: AsyncSession = Depends(get_db)):
-    db_user = authenticate_user(db, user.email, user.password)
+    # Аутентификация пользователя
+    db_user = await authenticate_user(db, user.email, user.password)
 
     # Если пользователь найден и пароль правильный, создаем токен
     access_token = security.create_access_token(data={"sub": db_user.email})
     return {"access_token": access_token, "token_type": "bearer"}
 
 
+
 # Страница логина
-@application.get("/login-page")
+@application.get("/login")
 async def login_page(request: Request):
     return templates.TemplateResponse("login.html", {"request": request})
 
@@ -65,19 +63,23 @@ async def register(user: UserCreate, db: AsyncSession = Depends(get_db)):
         email=user.email,
         phone=user.phone,
         address=user.address,
-        registration_date=datetime.now(timezone.utc),
+        registration_date=datetime.now(timezone.utc).replace(tzinfo=None),
         password=user.password,  # Хеширование на уровне базы данных
     )
 
     db.add(new_user)
     try:
         await db.commit()
-    except Exception:
+    except Exception as e:
         await db.rollback()
-        raise HTTPException(status_code=400, detail="Ошибка при регистрации пользователя")
+        print(f"Ошибка при коммите: {e}")
+        raise HTTPException(status_code=400, detail=f"Ошибка при регистрации пользователя: {str(e)}")
+
     await db.refresh(new_user)
 
+    print(f"Создание токена для: {new_user.email}")
     access_token = security.create_access_token(data={"sub": new_user.email})
+    print(f"Токен создан: {access_token}")
     return {"access_token": access_token, "token_type": "bearer"}
 
 @application.get("/register")

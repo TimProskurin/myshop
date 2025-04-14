@@ -8,13 +8,11 @@
 </head>
 <body>
   <h1>Авторизация</h1>
-  {% if error %}
-    <p style="color: red;">{{ error }}</p>
-  {% endif %}
-  <form action="/login" method="post">
+  <div id="error-message" style="color: red;"></div>
+  <form id="login-form">
     <div>
-      <label for="username">Email:</label>
-      <input type="text" id="username" name="username" placeholder="Введите email" required>
+      <label for="email">Email:</label>
+      <input type="text" id="email" name="email" placeholder="Введите email" required>
     </div>
     <div>
       <label for="password">Пароль:</label>
@@ -22,5 +20,35 @@
     </div>
     <button type="submit">Войти</button>
   </form>
+
+  <script>
+    document.getElementById("login-form").addEventListener("submit", async function(event) {
+      event.preventDefault(); // Предотвращаем стандартную отправку формы
+
+      const email = document.getElementById("email").value;
+      const password = document.getElementById("password").value;
+
+      try {
+        const response = await fetch("/login", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({ email: email, password: password })
+        });
+
+        if (!response.ok) {
+          const errorData = await response.json();
+          document.getElementById("error-message").textContent = errorData.detail || "Ошибка авторизации";
+        } else {
+          const data = await response.json();
+           window.location.href = "/";
+        }
+      } catch (error) {
+        document.getElementById("error-message").textContent = "Произошла ошибка. Попробуйте снова.";
+        console.error("Ошибка:", error);
+      }
+    });
+  </script>
 </body>
 </html>
