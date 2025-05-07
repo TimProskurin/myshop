@@ -1,31 +1,41 @@
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from typing import AsyncGenerator
-from fastapi import FastAPI, HTTPException, Depends, status, Request, Form
+#from fastapi import FastAPI, HTTPException, Depends, status, Request, Form
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
-from fastapi.security import OAuth2PasswordRequestForm
-from sqlalchemy.ext.asyncio import AsyncSession
+#from fastapi.security import OAuth2PasswordRequestForm
+#from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from app.database import get_async_session
 from app import models, schemas, security
 from app.models import Category, Product, User
 from app.schemas import UserCreate
-from app.security import verify_password
+#from app.security import verify_password
 import bcrypt
 from fastapi import FastAPI, Response
-from itsdangerous import URLSafeSerializer
+#from itsdangerous import URLSafeSerializer
 import os
 from fastapi import HTTPException, Request
 from fastapi.responses import JSONResponse
 from itsdangerous import URLSafeSerializer
 from fastapi import Depends
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.ext.asyncio import async_engine_from_config
+#from sqlalchemy.ext.asyncio import async_engine_from_config
 from app.database import Base, async_session
+from slowapi import Limiter
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
+from redis import asyncio as aioredis
 application = FastAPI()
+
+limiter = Limiter(key_func=get_remote_address, default_limits=["10/minute"])
+
 templates = Jinja2Templates(directory="app/templates", auto_reload=True)
+
 application.mount("/static", StaticFiles(directory="app/static"), name="static")
+
 SECRET_KEY = "secretkey"
+
 
 # Получение асинхронной сессии
 async def get_db() -> AsyncGenerator[AsyncSession, None]:
@@ -41,6 +51,21 @@ async def authenticate_user(db: AsyncSession, email: str, password: str):
         raise HTTPException(status_code=401, detail="Неверный пароль")
     return user
 
+
+redis_client = aioredis.from_url("redis://localhost:6379", encoding="utf-8", decode_responses=True)
+
+
+async def get_redis():
+    async with redis_client.client() as conn:
+        yield conn
+
+
+@application.exception_handler(RateLimitExceeded)
+async def rate_limit_handler(request: Request, exc: RateLimitExceeded):
+    return JSONResponse(
+        content={"detail": "Слишком много попыток. Попробуйте позже."},
+        status_code=429
+    )
 
 @application.on_event("shutdown")
 async def shutdown():
@@ -87,28 +112,49 @@ async def get_csrf_token(response: Response):
         domain = "127.0.0.1"
     )
     return {"message": "CSRF token generated"}
+
 # Эндпоинт авторизации (логин)
+@limiter.limit("5/minute")
 @application.post("/login")
 async def login(
         user: schemas.UserLogin,
-        db: AsyncSession = Depends(get_db)
+        request: Request,
+        db: AsyncSession = Depends(get_db),
+        redis: aioredis.Redis = Depends(get_redis)
 ):
-    print("\n\n--- Начало эндпоинта /login ---")
-    print(f"Полученные данные: email={user.email}, пароль=******")
+    # 1. Проверка брутфорса через Redis
+    ip = request.client.host
+    attempts_key = f"auth_attempts:{ip}"
+    block_key = f"auth_block:{ip}"
 
-    print("Поиск пользователя в базе...")
-    db_user = await authenticate_user(db, user.email, user.password)
+    # Проверяем блокировку
+    if await redis.exists(block_key):
+        raise HTTPException(status_code=429, detail="Слишком много попыток. Попробуйте через 1 минуту")
 
-    if not db_user:
-        print(f"❌ Пользователь {user.email} не найден или неверный пароль")
-        raise HTTPException(status_code=400, detail="Неверный email или пароль")
+    # Получаем текущее количество попыток
+    current_attempts = await redis.get(attempts_key)
+    current_attempts = int(current_attempts) if current_attempts else 0
 
-    print(f"✅ Пользователь {db_user.email} аутентифицирован")
-    access_token = security.create_access_token(data={"sub": db_user.email})
-    print(f"JWT-токен создан: {access_token}")
-    return {"access_token": access_token, "token_type": "bearer"}
+    # Лимит: 5 попыток в минуту
+    if current_attempts >= 5:
+        await redis.setex(block_key, timedelta(minutes=1).seconds, "1")
+        await redis.delete(attempts_key)
+        raise HTTPException(status_code=429, detail="Превышено количество попыток")
 
+    try:
+        # 2. Ваша существующая логика аутентификации
+        db_user = await authenticate_user(db, user.email, user.password)
+        access_token = security.create_access_token(data={"sub": db_user.email})
 
+        # Сбрасываем счетчик попыток при успехе
+        await redis.delete(attempts_key)
+        return {"access_token": access_token, "token_type": "bearer"}
+
+    except HTTPException as e:
+        # Увеличиваем счетчик при неудаче
+        await redis.incr(attempts_key)
+        await redis.expire(attempts_key, timedelta(minutes=1).seconds)
+        raise e
 
 # Страница логина
 @application.get("/login")
