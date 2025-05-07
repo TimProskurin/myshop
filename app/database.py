@@ -11,7 +11,14 @@ from contextlib import asynccontextmanager
 DATABASE_URL = "postgresql+asyncpg://postgres:Peperonia-2002@localhost:5432/shop2"
 
 # Создаем асинхронный движок
-async_engine = create_async_engine(DATABASE_URL, echo=True)
+async_engine = create_async_engine(
+    DATABASE_URL,
+    echo=True,
+    pool_size=10,         # Размер пула
+    max_overflow=20,      # Максимальное превышение пула
+    pool_timeout=30,      # Таймаут ожидания соединения
+    pool_recycle=3600,    # Время жизни соединения (в секундах)
+)
 
 # Создаем базовый класс для всех моделей
 Base = declarative_base()

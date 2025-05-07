@@ -12,10 +12,20 @@ from app.models import Category, Product, User
 from app.schemas import UserCreate
 from app.security import verify_password
 import bcrypt
+from fastapi import FastAPI, Response
+from itsdangerous import URLSafeSerializer
+import os
+from fastapi import HTTPException, Request
+from fastapi.responses import JSONResponse
+from itsdangerous import URLSafeSerializer
+from fastapi import Depends
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.ext.asyncio import async_engine_from_config
+from app.database import Base, async_session
 application = FastAPI()
 templates = Jinja2Templates(directory="app/templates", auto_reload=True)
 application.mount("/static", StaticFiles(directory="app/static"), name="static")
-
+SECRET_KEY = "secretkey"
 
 # Получение асинхронной сессии
 async def get_db() -> AsyncGenerator[AsyncSession, None]:
@@ -30,14 +40,72 @@ async def authenticate_user(db: AsyncSession, email: str, password: str):
     if not bcrypt.checkpw(password.encode('utf-8'), user.password.encode('utf-8')):  # Сравниваем пароли
         raise HTTPException(status_code=401, detail="Неверный пароль")
     return user
+
+
+@application.on_event("shutdown")
+async def shutdown():
+    await async_session().close_all()  # Закрываем все соединения
+@application.get("/.well-known/appspecific/com.chrome.devtools.json")
+async def ignore_chrome_devtools():
+    return Response(status_code=200)
+
+@application.middleware("http")
+async def csrf_middleware(request: Request, call_next):
+    if request.method in {"GET", "HEAD", "OPTIONS"}:
+        return await call_next(request)
+
+    csrf_from_header = request.headers.get("X-CSRF-Token")
+    csrf_from_cookie = request.cookies.get("fastapi-csrf-token")
+
+    if not csrf_from_header or not csrf_from_cookie:
+        return JSONResponse({"detail": "CSRF token missing"}, 403)
+
+    serializer = URLSafeSerializer(SECRET_KEY)
+    try:
+        data_header = serializer.loads(csrf_from_header)
+        data_cookie = serializer.loads(csrf_from_cookie)
+    except Exception:
+        return JSONResponse({"detail": "Invalid CSRF token"}, 403)
+
+    if data_header != data_cookie:
+        return JSONResponse({"detail": "CSRF token mismatch"}, 403)
+
+    return await call_next(request)
+
+@application.get("/csrf-token")
+async def get_csrf_token(response: Response):
+    serializer = URLSafeSerializer(SECRET_KEY)
+    csrf_token = serializer.dumps({"csrf": os.urandom(24).hex()})
+    print(f"🔑 Генерация CSRF-токена: {csrf_token}")  # Логирование токена
+    response.set_cookie(
+        key="fastapi-csrf-token",
+        value=csrf_token,
+        httponly=False,
+        samesite="strict",
+        secure=False,
+        path="/",
+        domain = "127.0.0.1"
+    )
+    return {"message": "CSRF token generated"}
 # Эндпоинт авторизации (логин)
 @application.post("/login")
-async def login(user: schemas.UserLogin, db: AsyncSession = Depends(get_db)):
-    # Аутентификация пользователя
+async def login(
+        user: schemas.UserLogin,
+        db: AsyncSession = Depends(get_db)
+):
+    print("\n\n--- Начало эндпоинта /login ---")
+    print(f"Полученные данные: email={user.email}, пароль=******")
+
+    print("Поиск пользователя в базе...")
     db_user = await authenticate_user(db, user.email, user.password)
 
-    # Если пользователь найден и пароль правильный, создаем токен
+    if not db_user:
+        print(f"❌ Пользователь {user.email} не найден или неверный пароль")
+        raise HTTPException(status_code=400, detail="Неверный email или пароль")
+
+    print(f"✅ Пользователь {db_user.email} аутентифицирован")
     access_token = security.create_access_token(data={"sub": db_user.email})
+    print(f"JWT-токен создан: {access_token}")
     return {"access_token": access_token, "token_type": "bearer"}
 
 

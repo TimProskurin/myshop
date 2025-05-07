@@ -21,34 +21,72 @@
     <button type="submit">Войти</button>
   </form>
 
-  <script>
-    document.getElementById("login-form").addEventListener("submit", async function(event) {
-      event.preventDefault(); // Предотвращаем стандартную отправку формы
+<script>
+        // 1. Получение CSRF-токена из куки
+        function getCookie(name) {
+            const value = `; ${document.cookie}`;
+            const parts = value.split(`; ${name}=`);
+            return parts.length === 2 ? parts.pop().split(';').shift() : null;
+        }
 
-      const email = document.getElementById("email").value;
-      const password = document.getElementById("password").value;
+        // 2. Инициализация CSRF-токена при загрузке страницы
+        async function initializeCsrf() {
+            try {
+                const response = await fetch('/csrf-token', {
+                    method: 'GET',
+                    credentials: 'include'
+                });
 
-      try {
-        const response = await fetch("/login", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json"
-          },
-          body: JSON.stringify({ email: email, password: password })
+                if (!response.ok) {
+                    throw new Error('Ошибка инициализации CSRF');
+                }
+            } catch (error) {
+                console.error('Ошибка:', error);
+                document.getElementById('error-message').textContent =
+                    'Ошибка безопасности. Перезагрузите страницу.';
+            }
+        }
+
+        // 3. Обработчик отправки формы
+        document.getElementById('login-form').addEventListener('submit', async (e) => {
+            e.preventDefault();
+
+            const csrfToken = getCookie('fastapi-csrf-token');
+            if (!csrfToken) {
+                document.getElementById('error-message').textContent = 'Ошибка CSRF-токена';
+                return;
+            }
+
+            const email = document.getElementById('email').value;
+            const password = document.getElementById('password').value;
+
+            try {
+                const response = await fetch('/login', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRF-Token': csrfToken  // CSRF-токен в заголовке
+                    },
+                    body: JSON.stringify({ email, password }),
+                    credentials: 'include'  // Для передачи кук
+                });
+
+                if (!response.ok) {
+                    const errorData = await response.json();
+                    throw new Error(errorData.detail || 'Ошибка авторизации');
+                }
+
+                // Успешный вход
+                window.location.href = '/';
+
+            } catch (error) {
+                document.getElementById('error-message').textContent = error.message;
+                console.error('Ошибка:', error);
+            }
         });
 
-        if (!response.ok) {
-          const errorData = await response.json();
-          document.getElementById("error-message").textContent = errorData.detail || "Ошибка авторизации";
-        } else {
-          const data = await response.json();
-           window.location.href = "/";
-        }
-      } catch (error) {
-        document.getElementById("error-message").textContent = "Произошла ошибка. Попробуйте снова.";
-        console.error("Ошибка:", error);
-      }
-    });
-  </script>
+        // Инициализация при загрузке страницы
+        initializeCsrf();
+    </script>
 </body>
 </html>

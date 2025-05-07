@@ -8,6 +8,7 @@
 <body>
     <h2>Регистрация</h2>
     <form id="registerForm">
+        <input type="hidden" id="csrf_token" name="csrf_token">
         <label for="first_name">Имя:</label><br>
         <input type="text" id="first_name" name="first_name" required><br><br>
 
@@ -30,32 +31,56 @@
     </form>
 
     <script>
-        document.getElementById('registerForm').addEventListener('submit', async function(event) {
+        // Получение CSRF-токена из куки
+        function getCookie(name) {
+            const value = `; ${document.cookie}`;
+            const parts = value.split(`; ${name}=`);
+            return parts.length === 2 ? parts.pop().split(';').shift() : null;
+        }
+
+        // Установка CSRF-токена в форму при загрузке страницы
+        document.addEventListener('DOMContentLoaded', async () => {
+            try {
+                // Запрашиваем CSRF-токен при загрузке страницы
+                await fetch('/csrf-token', { credentials: 'include' });
+                const csrfToken = getCookie('fastapi-csrf-token');
+                if (csrfToken) {
+                    document.getElementById('csrf_token').value = csrfToken;
+                }
+            } catch (error) {
+                console.error('Ошибка инициализации CSRF:', error);
+            }
+        });
+
+        // Обработка отправки формы
+        document.getElementById('registerForm').addEventListener('submit', async (event) => {
             event.preventDefault();
 
+            const csrfToken = getCookie('fastapi-csrf-token');
             const formData = new FormData(event.target);
-            const data = {
-                first_name: formData.get('first_name'),
-                last_name: formData.get('last_name'),
-                email: formData.get('email'),
-                phone: formData.get('phone'),
-                address: formData.get('address'),
-                password: formData.get('password')
-            };
 
             const response = await fetch('/register', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
+                    'X-CSRF-Token': csrfToken  // Передача токена в заголовке
                 },
-                body: JSON.stringify(data)
+                body: JSON.stringify({
+                    first_name: formData.get('first_name'),
+                    last_name: formData.get('last_name'),
+                    email: formData.get('email'),
+                    phone: formData.get('phone'),
+                    address: formData.get('address'),
+                    password: formData.get('password')
+                })
             });
 
             const result = await response.json();
             if (response.ok) {
-                alert('Регистрация прошла успешно');
+                alert('Регистрация успешна!');
+                window.location.href = '/login';  // Редирект на страницу логина
             } else {
-                alert('Ошибка регистрации: ' + result.detail);
+                alert(`Ошибка: ${result.detail}`);
             }
         });
     </script>
