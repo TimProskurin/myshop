@@ -26,6 +26,8 @@ from slowapi import Limiter
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 from redis import asyncio as aioredis
+from dotenv import load_dotenv
+import os
 application = FastAPI()
 
 limiter = Limiter(key_func=get_remote_address, default_limits=["10/minute"])
@@ -34,8 +36,10 @@ templates = Jinja2Templates(directory="app/templates", auto_reload=True)
 
 application.mount("/static", StaticFiles(directory="app/static"), name="static")
 
-SECRET_KEY = "secretkey"
+load_dotenv()
 
+
+SECRET_KEY = os.getenv("SECRET_KEY")
 
 # Получение асинхронной сессии
 async def get_db() -> AsyncGenerator[AsyncSession, None]:
@@ -52,7 +56,11 @@ async def authenticate_user(db: AsyncSession, email: str, password: str):
     return user
 
 
-redis_client = aioredis.from_url("redis://localhost:6379", encoding="utf-8", decode_responses=True)
+redis_client = aioredis.from_url(
+    "redis://redis:6379/0",  # redis — имя сервиса в Docker Compose
+    encoding="utf-8",
+    decode_responses=True
+)
 
 
 async def get_redis():
@@ -109,7 +117,6 @@ async def get_csrf_token(response: Response):
         samesite="strict",
         secure=False,
         path="/",
-        domain = "127.0.0.1"
     )
     return {"message": "CSRF token generated"}
 

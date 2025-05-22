@@ -1,0 +1,60 @@
+services:
+  application:
+    build: .
+    env_file:
+      - .env
+    ports:
+      - "8000:8000"
+    environment:
+      SECRET_KEY: ${SECRET_KEY}
+      DATABASE_URL: ${DATABASE_URL}
+      REDIS_URL: ${REDIS_URL}
+      DEBUG: ${DEBUG}
+      POSTGRES_HOST_AUTH_METHOD: trust
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    command: >
+      sh -c "
+      /app/wait-for.sh db:5432 redis:6379 --timeout=30 &&
+      alembic -c /app/alembic.ini upgrade head &&
+      uvicorn app.main:application --host 0.0.0.0 --port 8000"
+
+  redis:
+    image: redis:latest
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/var/lib/redis/data
+    healthcheck:
+      test: [ "CMD", "redis-cli", "ping" ]
+      interval: 5s
+      timeout: 1s
+      retries: 5
+
+  db:
+    image: postgres:16
+    env_file:
+      - .env
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    environment:
+        POSTGRES_DEBUG: "1"
+        POSTGRES_LOG_LEVEL: "debug"
+    command:
+        - "postgres"
+        - "-c"
+        - "log_statement=all"
+        - "-c"
+        - "log_min_duration_statement=0"
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}" ]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  postgres_data:
+  redis_data:

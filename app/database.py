@@ -1,5 +1,4 @@
-# app/database.py
-from sqlalchemy import Engine
+from sqlalchemy import create_engine, Engine
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
 from sqlalchemy.orm import sessionmaker, Session
@@ -7,12 +6,12 @@ from typing import AsyncGenerator
 from typing import cast
 from contextlib import asynccontextmanager
 
-
-DATABASE_URL = "postgresql+asyncpg://postgres:Peperonia-2002@localhost:5432/shop2"
+# Асинхронная конфигурация базы данных
+DATABASE_URL_ASYNC = "postgresql+asyncpg://postgres:Peperonia-2002@db:5432/shop2"
 
 # Создаем асинхронный движок
 async_engine = create_async_engine(
-    DATABASE_URL,
+    DATABASE_URL_ASYNC,
     echo=True,
     pool_size=10,         # Размер пула
     max_overflow=20,      # Максимальное превышение пула
@@ -33,3 +32,21 @@ async_session = sessionmaker(
 # Функция для получения асинхронной сессии
 def get_async_session() -> Session:
     return async_session()
+
+
+# Синхронная конфигурация базы данных для Alembic
+DATABASE_URL_SYNC = "postgresql://postgres:Peperonia-2002@db:5432/shop2"
+
+# Создаем синхронный движок для Alembic
+sync_engine = create_engine(
+    DATABASE_URL_SYNC,
+    echo=True,
+    pool_size=10,
+    max_overflow=20,
+    pool_timeout=30,
+    pool_recycle=3600,
+)
+
+# Функция для получения синхронной сессии
+def get_sync_session() -> Session:
+    return sessionmaker(bind=sync_engine)()
