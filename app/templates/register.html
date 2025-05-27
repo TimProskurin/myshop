@@ -4,44 +4,122 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Регистрация</title>
+    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', path='styles.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', path='auth.css') }}">
 </head>
 <body>
-    <h2>Регистрация</h2>
-    <form id="registerForm">
-        <input type="hidden" id="csrf_token" name="csrf_token">
-        <label for="first_name">Имя:</label><br>
-        <input type="text" id="first_name" name="first_name" required><br><br>
+    <div class="auth-container">
+        <div class="auth-card">
+            <div class="auth-header">
+                <h2>Регистрация</h2>
+                <p>Создайте свой аккаунт для доступа к магазину</p>
+            </div>
 
-        <label for="last_name">Фамилия:</label><br>
-        <input type="text" id="last_name" name="last_name" required><br><br>
+            <div id="error-message"></div>
 
-        <label for="email">Email:</label><br>
-        <input type="email" id="email" name="email" required><br><br>
+            <form id="registerForm" class="auth-form">
+                <input type="hidden" id="csrf_token" name="csrf_token">
 
-        <label for="phone">Телефон:</label><br>
-        <input type="text" id="phone" name="phone" required><br><br>
+                <div class="form-group">
+                    <label for="first_name">Имя</label>
+                    <input
+                        type="text"
+                        id="first_name"
+                        name="first_name"
+                        placeholder="Введите ваше имя"
+                        required
+                        autocomplete="given-name"
+                    >
+                </div>
 
-        <label for="address">Адрес:</label><br>
-        <input type="text" id="address" name="address" required><br><br>
+                <div class="form-group">
+                    <label for="last_name">Фамилия</label>
+                    <input
+                        type="text"
+                        id="last_name"
+                        name="last_name"
+                        placeholder="Введите вашу фамилию"
+                        required
+                        autocomplete="family-name"
+                    >
+                </div>
 
-        <label for="password">Пароль:</label><br>
-        <input type="password" id="password" name="password" required><br><br>
+                <div class="form-group">
+                    <label for="email">Email</label>
+                    <input
+                        type="email"
+                        id="email"
+                        name="email"
+                        placeholder="Введите ваш email"
+                        required
+                        autocomplete="email"
+                    >
+                </div>
 
-        <input type="submit" value="Зарегистрироваться">
-    </form>
+                <div class="form-group">
+                    <label for="phone">Телефон</label>
+                    <input
+                        type="tel"
+                        id="phone"
+                        name="phone"
+                        placeholder="Введите ваш телефон"
+                        required
+                        autocomplete="tel"
+                    >
+                </div>
+
+                <div class="form-group">
+                    <label for="address">Адрес</label>
+                    <input
+                        type="text"
+                        id="address"
+                        name="address"
+                        placeholder="Введите ваш адрес"
+                        required
+                        autocomplete="street-address"
+                    >
+                </div>
+
+                <div class="form-group">
+                    <label for="password">Пароль</label>
+                    <input
+                        type="password"
+                        id="password"
+                        name="password"
+                        placeholder="Придумайте пароль"
+                        required
+                        autocomplete="new-password"
+                    >
+                </div>
+
+                <button type="submit" class="submit-btn">Зарегистрироваться</button>
+            </form>
+
+            <div class="auth-footer">
+                <p>Уже есть аккаунт? <a href="/login">Войти</a></p>
+            </div>
+        </div>
+    </div>
 
     <script>
-        // Получение CSRF-токена из куки
         function getCookie(name) {
             const value = `; ${document.cookie}`;
             const parts = value.split(`; ${name}=`);
             return parts.length === 2 ? parts.pop().split(';').shift() : null;
         }
 
-        // Установка CSRF-токена в форму при загрузке страницы
+        function showError(message) {
+            const errorElement = document.getElementById('error-message');
+            errorElement.textContent = message;
+            errorElement.classList.add('visible');
+            setTimeout(() => {
+                errorElement.classList.remove('visible');
+            }, 5000);
+        }
+
         document.addEventListener('DOMContentLoaded', async () => {
             try {
-                // Запрашиваем CSRF-токен при загрузке страницы
                 await fetch('/csrf-token', { credentials: 'include' });
                 const csrfToken = getCookie('fastapi-csrf-token');
                 if (csrfToken) {
@@ -49,38 +127,50 @@
                 }
             } catch (error) {
                 console.error('Ошибка инициализации CSRF:', error);
+                showError('Ошибка безопасности. Перезагрузите страницу.');
             }
         });
 
-        // Обработка отправки формы
         document.getElementById('registerForm').addEventListener('submit', async (event) => {
             event.preventDefault();
 
             const csrfToken = getCookie('fastapi-csrf-token');
+            if (!csrfToken) {
+                showError('Ошибка CSRF-токена');
+                return;
+            }
+
             const formData = new FormData(event.target);
+            const userData = {
+                first_name: formData.get('first_name'),
+                last_name: formData.get('last_name'),
+                email: formData.get('email'),
+                phone: formData.get('phone'),
+                address: formData.get('address'),
+                password: formData.get('password')
+            };
 
-            const response = await fetch('/register', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'X-CSRF-Token': csrfToken  // Передача токена в заголовке
-                },
-                body: JSON.stringify({
-                    first_name: formData.get('first_name'),
-                    last_name: formData.get('last_name'),
-                    email: formData.get('email'),
-                    phone: formData.get('phone'),
-                    address: formData.get('address'),
-                    password: formData.get('password')
-                })
-            });
+            try {
+                const response = await fetch('/register', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRF-Token': csrfToken
+                    },
+                    body: JSON.stringify(userData)
+                });
 
-            const result = await response.json();
-            if (response.ok) {
+                const data = await response.json();
+
+                if (!response.ok) {
+                    throw new Error(data.detail || 'Ошибка при регистрации');
+                }
+
                 alert('Регистрация успешна!');
-                window.location.href = '/login';  // Редирект на страницу логина
-            } else {
-                alert(`Ошибка: ${result.detail}`);
+                window.location.href = '/login';
+            } catch (error) {
+                showError(error.message);
+                console.error('Ошибка:', error);
             }
         });
     </script>

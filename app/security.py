@@ -1,8 +1,13 @@
 from passlib.context import CryptContext
 from datetime import datetime, timedelta
 from jose import JWTError, jwt
+from dotenv import load_dotenv
+import os
 
-SECRET_KEY = "secret_key"  # Ваш секретный ключ
+
+load_dotenv()
+
+SECRET_KEY = os.getenv("SECRET_KEY") # Ваш секретный ключ
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 30
 

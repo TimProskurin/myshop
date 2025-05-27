@@ -3,90 +3,124 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Логин</title>
+  <title>Вход в систему</title>
+  <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="{{ url_for('static', path='styles.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', path='auth.css') }}">
 </head>
 <body>
-  <h1>Авторизация</h1>
-  <div id="error-message" style="color: red;"></div>
-  <form id="login-form">
-    <div>
-      <label for="email">Email:</label>
-      <input type="text" id="email" name="email" placeholder="Введите email" required>
+  <div class="auth-container">
+    <div class="auth-card">
+      <div class="auth-header">
+        <h2>Вход в систему</h2>
+        <p>Добро пожаловать! Пожалуйста, войдите в свой аккаунт.</p>
+      </div>
+
+      <div id="error-message"></div>
+
+      <form id="login-form" class="auth-form">
+        <div class="form-group">
+          <label for="email">Email</label>
+          <input
+            type="email"
+            id="email"
+            name="email"
+            placeholder="Введите ваш email"
+            required
+            autocomplete="email"
+          >
+        </div>
+
+        <div class="form-group">
+          <label for="password">Пароль</label>
+          <input
+            type="password"
+            id="password"
+            name="password"
+            placeholder="Введите ваш пароль"
+            required
+            autocomplete="current-password"
+          >
+        </div>
+
+        <button type="submit" class="submit-btn">Войти</button>
+      </form>
+
+      <div class="auth-footer">
+        <p>Нет аккаунта? <a href="/register">Зарегистрироваться</a></p>
+      </div>
     </div>
-    <div>
-      <label for="password">Пароль:</label>
-      <input type="password" id="password" name="password" placeholder="Введите пароль" required>
-    </div>
-    <button type="submit">Войти</button>
-  </form>
+  </div>
 
-<script>
-        // 1. Получение CSRF-токена из куки
-        function getCookie(name) {
-            const value = `; ${document.cookie}`;
-            const parts = value.split(`; ${name}=`);
-            return parts.length === 2 ? parts.pop().split(';').shift() : null;
-        }
+  <script>
+    function getCookie(name) {
+      const value = `; ${document.cookie}`;
+      const parts = value.split(`; ${name}=`);
+      return parts.length === 2 ? parts.pop().split(';').shift() : null;
+    }
 
-        // 2. Инициализация CSRF-токена при загрузке страницы
-        async function initializeCsrf() {
-            try {
-                const response = await fetch('/csrf-token', {
-                    method: 'GET',
-                    credentials: 'include'
-                });
-
-                if (!response.ok) {
-                    throw new Error('Ошибка инициализации CSRF');
-                }
-            } catch (error) {
-                console.error('Ошибка:', error);
-                document.getElementById('error-message').textContent =
-                    'Ошибка безопасности. Перезагрузите страницу.';
-            }
-        }
-
-        // 3. Обработчик отправки формы
-        document.getElementById('login-form').addEventListener('submit', async (e) => {
-            e.preventDefault();
-
-            const csrfToken = getCookie('fastapi-csrf-token');
-            if (!csrfToken) {
-                document.getElementById('error-message').textContent = 'Ошибка CSRF-токена';
-                return;
-            }
-
-            const email = document.getElementById('email').value;
-            const password = document.getElementById('password').value;
-
-            try {
-                const response = await fetch('/login', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'X-CSRF-Token': csrfToken  // CSRF-токен в заголовке
-                    },
-                    body: JSON.stringify({ email, password }),
-                    credentials: 'include'  // Для передачи кук
-                });
-
-                if (!response.ok) {
-                    const errorData = await response.json();
-                    throw new Error(errorData.detail || 'Ошибка авторизации');
-                }
-
-                // Успешный вход
-                window.location.href = '/';
-
-            } catch (error) {
-                document.getElementById('error-message').textContent = error.message;
-                console.error('Ошибка:', error);
-            }
+    async function initializeCsrf() {
+      try {
+        const response = await fetch('/csrf-token', {
+          method: 'GET',
+          credentials: 'include'
         });
 
-        // Инициализация при загрузке страницы
-        initializeCsrf();
-    </script>
+        if (!response.ok) {
+          throw new Error('Ошибка инициализации CSRF');
+        }
+      } catch (error) {
+        console.error('Ошибка:', error);
+        showError('Ошибка безопасности. Перезагрузите страницу.');
+      }
+    }
+
+    function showError(message) {
+      const errorElement = document.getElementById('error-message');
+      errorElement.textContent = message;
+      errorElement.classList.add('visible');
+      setTimeout(() => {
+        errorElement.classList.remove('visible');
+      }, 5000);
+    }
+
+    document.getElementById('login-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+
+      const csrfToken = getCookie('fastapi-csrf-token');
+      if (!csrfToken) {
+        showError('Ошибка CSRF-токена');
+        return;
+      }
+
+      const email = document.getElementById('email').value;
+      const password = document.getElementById('password').value;
+
+      try {
+        const response = await fetch('/login', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-CSRF-Token': csrfToken
+          },
+          body: JSON.stringify({ email, password }),
+          credentials: 'include'
+        });
+
+        const data = await response.json();
+
+        if (!response.ok) {
+          throw new Error(data.detail || 'Ошибка авторизации');
+        }
+
+        window.location.href = '/';
+      } catch (error) {
+        showError(error.message);
+        console.error('Ошибка:', error);
+      }
+    });
+
+    initializeCsrf();
+  </script>
 </body>
 </html>
