@@ -1,0 +1,9 @@
+Metadata-Version: 2.4
+Name: app
+Version: 0.1
+Requires-Dist: fastapi
+Requires-Dist: sqlalchemy
+Requires-Dist: alembic
+Requires-Dist: pytest
+Requires-Dist: pytest-asyncio
+Dynamic: requires-dist

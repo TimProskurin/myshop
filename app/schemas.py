@@ -1,20 +1,24 @@
-from pydantic import BaseModel, EmailStr, field_validator
-from fastapi import Form
+from pydantic import BaseModel, EmailStr
+from typing import Optional
 
-class UserCreate(BaseModel):
+class UserBase(BaseModel):
     first_name: str
     last_name: str
     email: str
     phone: str
     address: str
-    password: str
-class Token(BaseModel):
-    access_token: str
-    token_type: str
 
-class TokenData(BaseModel):
-    email: str | None = None
+class UserCreate(UserBase):
+    password: str
 
 class UserLogin(BaseModel):
     email: str
+    password: str
+
+class Token(BaseModel):
+    status: str
+    redirect: str
+
+class UserInDB(UserBase):
+    user_id: int
     password: str

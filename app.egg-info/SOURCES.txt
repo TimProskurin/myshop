@@ -1,0 +1,17 @@
+pyproject.toml
+setup.py
+app/__init__.py
+app/crud.py
+app/database.py
+app/main.py
+app/models.py
+app/schemas.py
+app/security.py
+app.egg-info/PKG-INFO
+app.egg-info/SOURCES.txt
+app.egg-info/dependency_links.txt
+app.egg-info/requires.txt
+app.egg-info/top_level.txt
+tests/test_auth.py
+tests/test_categories.py
+tests/test_products.py

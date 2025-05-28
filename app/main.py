@@ -12,16 +12,11 @@ from app.models import Category, Product, User
 from app.schemas import UserCreate
 #from app.security import verify_password
 import bcrypt
-from fastapi import FastAPI, Response
-#from itsdangerous import URLSafeSerializer
-import os
-from fastapi import HTTPException, Request
-from fastapi.responses import JSONResponse
+from fastapi import FastAPI, Response, Depends, HTTPException, Request, status
+from fastapi.responses import JSONResponse, RedirectResponse
 from itsdangerous import URLSafeSerializer
-from fastapi import Depends
 from sqlalchemy.ext.asyncio import AsyncSession
-#from sqlalchemy.ext.asyncio import async_engine_from_config
-from app.database import Base, async_session
+from app.database import async_session
 from slowapi import Limiter
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
@@ -37,7 +32,6 @@ templates = Jinja2Templates(directory="app/templates", auto_reload=True)
 application.mount("/static", StaticFiles(directory="app/static"), name="static")
 
 load_dotenv()
-
 
 SECRET_KEY = os.getenv("SECRET_KEY")
 
@@ -55,18 +49,15 @@ async def authenticate_user(db: AsyncSession, email: str, password: str):
         raise HTTPException(status_code=401, detail="Неверный пароль")
     return user
 
-
 redis_client = aioredis.from_url(
     "redis://redis:6379/0",  # redis — имя сервиса в Docker Compose
     encoding="utf-8",
     decode_responses=True
 )
 
-
 async def get_redis():
     async with redis_client.client() as conn:
         yield conn
-
 
 @application.exception_handler(RateLimitExceeded)
 async def rate_limit_handler(request: Request, exc: RateLimitExceeded):
@@ -74,7 +65,6 @@ async def rate_limit_handler(request: Request, exc: RateLimitExceeded):
         content={"detail": "Слишком много попыток. Попробуйте позже."},
         status_code=429
     )
-
 @application.on_event("shutdown")
 async def shutdown():
     await async_session().close_all()  # Закрываем все соединения
@@ -126,6 +116,7 @@ async def get_csrf_token(response: Response):
 async def login(
         user: schemas.UserLogin,
         request: Request,
+        response: Response,
         db: AsyncSession = Depends(get_db),
         redis: aioredis.Redis = Depends(get_redis)
 ):
@@ -155,7 +146,17 @@ async def login(
 
         # Сбрасываем счетчик попыток при успехе
         await redis.delete(attempts_key)
-        return {"access_token": access_token, "token_type": "bearer"}
+        
+        # Устанавливаем токен в куки
+        response.set_cookie(
+            key="access_token",
+            value=access_token,
+            httponly=True,
+            samesite="lax",
+            max_age=1800  # 30 минут
+        )
+        
+        return {"status": "success", "redirect": "/"}
 
     except HTTPException as e:
         # Увеличиваем счетчик при неудаче
@@ -171,7 +172,11 @@ async def login_page(request: Request):
 
 # Эндпоинт регистрации
 @application.post("/register", response_model=schemas.Token)
-async def register(user: UserCreate, db: AsyncSession = Depends(get_db)):
+async def register(
+    user: UserCreate,
+    response: Response,
+    db: AsyncSession = Depends(get_db)
+):
     # Проверка существующего пользователя
     result = await db.execute(select(models.User).filter(models.User.email == user.email))
     existing_user = result.scalars().first()
@@ -185,7 +190,7 @@ async def register(user: UserCreate, db: AsyncSession = Depends(get_db)):
         phone=user.phone,
         address=user.address,
         registration_date=datetime.now(timezone.utc).replace(tzinfo=None),
-        password=user.password,  # Хеширование на уровне базы данных
+        password=user.password,
     )
 
     db.add(new_user)
@@ -201,42 +206,197 @@ async def register(user: UserCreate, db: AsyncSession = Depends(get_db)):
     print(f"Создание токена для: {new_user.email}")
     access_token = security.create_access_token(data={"sub": new_user.email})
     print(f"Токен создан: {access_token}")
-    return {"access_token": access_token, "token_type": "bearer"}
+    
+    # Устанавливаем токен в куки
+    response.set_cookie(
+        key="access_token",
+        value=access_token,
+        httponly=True,
+        samesite="lax",
+        max_age=1800  # 30 минут
+    )
+    
+    return {"status": "success", "redirect": "/"}
 
 @application.get("/register")
 async def register_page(request: Request):
     return templates.TemplateResponse("register.html", {"request": request})
-# Главная страница
+
+# Получение текущего пользователя
+async def get_current_user(request: Request, db: AsyncSession = Depends(get_db)) -> User:
+    token = request.cookies.get("access_token")
+    if not token:
+        return None
+    
+    try:
+        payload = security.decode_access_token(token)
+        email = payload.get("sub")
+        if email is None:
+            return None
+        
+        result = await db.execute(select(User).where(User.email == email))
+        user = result.scalars().first()
+        if user is None:
+            return None
+            
+        return user
+    except:
+        return None
+
+# Защита маршрутов для авторизованных пользователей
+async def login_required(request: Request, db: AsyncSession = Depends(get_db)):
+    user = await get_current_user(request, db)
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Not authenticated"
+        )
+    return user
+
+# Эндпоинт личного кабинета
+@application.get("/profile")
+async def profile(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(login_required)
+):
+    try:
+        # Получаем заказы пользователя
+        result = await db.execute(
+            select(models.Order)
+            .where(models.Order.user_id == current_user.user_id)
+            .order_by(models.Order.order_date.desc())
+        )
+        orders = result.scalars().all()
+
+        orders_data = []
+        for order in orders:
+            # Получаем все items для текущего заказа
+            items_result = await db.execute(
+                select(models.OrderItem, models.Product)
+                .join(models.Product, models.OrderItem.product_id == models.Product.product_id)
+                .where(models.OrderItem.order_id == order.order_id)
+            )
+            items = items_result.all()
+            
+            order_dict = {
+                "order_id": order.order_id,
+                "order_date": order.order_date.strftime("%d.%m.%Y %H:%M"),
+                "status": order.status,
+                "total_amount": order.total_amount,
+                "address": order.address,
+                "items": [{
+                    "quantity": item[0].quantity,
+                    "price": item[0].price,
+                    "product_id": item[0].product_id
+                } for item in items]
+            }
+            orders_data.append(order_dict)
+
+        return templates.TemplateResponse("profile.html", {
+            "request": request,
+            "user": current_user,
+            "orders": orders_data
+        })
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+# Обновление данных пользователя
+@application.post("/profile/update")
+async def update_profile(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(login_required)
+):
+    try:
+        data = await request.json()
+        
+        # Проверяем, не занят ли email другим пользователем
+        if data.get("email") and data["email"] != current_user.email:
+            result = await db.execute(
+                select(User).where(User.email == data["email"])
+            )
+            if result.scalars().first():
+                raise HTTPException(status_code=400, detail="Email уже используется")
+        
+        # Проверяем, не занят ли телефон другим пользователем
+        if data.get("phone") and data["phone"] != current_user.phone:
+            result = await db.execute(
+                select(User).where(User.phone == data["phone"])
+            )
+            if result.scalars().first():
+                raise HTTPException(status_code=400, detail="Телефон уже используется")
+        
+        # Обновляем данные пользователя
+        if "first_name" in data:
+            current_user.first_name = data["first_name"]
+        if "email" in data:
+            current_user.email = data["email"]
+        if "phone" in data:
+            current_user.phone = data["phone"]
+        
+        await db.commit()
+        return {"status": "success"}
+        
+    except HTTPException as e:
+        await db.rollback()
+        raise e
+    except Exception as e:
+        await db.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+
+# Обновляем существующие маршруты для поддержки авторизации
 @application.get("/")
-async def index(request: Request, db: AsyncSession = Depends(get_db)):
+async def index(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
     try:
         result = await db.execute(select(models.Category))
         categories = result.scalars().all()
-        return templates.TemplateResponse("index.html", {"request": request, "categories": categories})
+        return templates.TemplateResponse("index.html", {
+            "request": request,
+            "categories": categories,
+            "user": current_user
+        })
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Internal Server Error: {e}")
 
-
-# Страница категории
 @application.get("/category/{category_id}")
-async def category_detail(request: Request, category_id: int, db: AsyncSession = Depends(get_async_session)):
-    # Не вызываем db(), просто используем db
+async def category_detail(
+    request: Request,
+    category_id: int,
+    db: AsyncSession = Depends(get_async_session),
+    current_user: User = Depends(get_current_user)
+):
     result = await db.execute(select(Category).filter(Category.category_id == category_id))
     category = result.scalars().first()
 
     if category is None:
         return {"message": "Category not found"}
 
-    # Получаем все продукты этой категории
     result = await db.execute(select(Product).filter(Product.category_id == category_id))
     products = result.scalars().all()
 
     return templates.TemplateResponse("category.html", {
         "request": request,
         "category": category,
-        "products": products
+        "products": products,
+        "user": current_user
     })
 
+# Эндпоинт выхода
+@application.get("/logout")
+async def logout():
+    response = RedirectResponse(url="/login")
+    response.delete_cookie(
+        key="access_token",
+        path="/",  # Важно указать путь, чтобы удалить куки для всего домена
+        secure=False,  # В продакшене должно быть True
+        httponly=True
+    )
+    return response
 
 # Тест соединения с базой данных
 @application.get("/test-db-connection")
@@ -246,3 +406,27 @@ async def test_db_connection(db: AsyncSession = Depends(get_db)):
         return {"status": "DB Connection Successful"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"DB Error: {e}")
+
+@application.get("/product/{product_id}")
+async def product_detail(
+    request: Request,
+    product_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    try:
+        result = await db.execute(
+            select(Product).where(Product.product_id == product_id)
+        )
+        product = result.scalars().first()
+        
+        if product is None:
+            raise HTTPException(status_code=404, detail="Товар не найден")
+            
+        return templates.TemplateResponse("product_detail.html", {
+            "request": request,
+            "product": product,
+            "user": current_user
+        })
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))

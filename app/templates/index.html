@@ -16,13 +16,15 @@
         <h1>Магазин</h1>
       </div>
       <ul class="nav-links">
-        <li><a href="/">Главная</a></li>
-
+        <li><a href="/" class="active">Главная</a></li>
+        {% if user %}
+          <li><a href="/profile">Личный кабинет</a></li>
+          <li><a href="/logout">Выйти</a></li>
+        {% else %}
+          <li><a href="/login">Войти</a></li>
+          <li><a href="/register">Регистрация</a></li>
+        {% endif %}
       </ul>
-      <div class="auth-buttons">
-        <a href="/login" class="auth-btn login-btn">Войти</a>
-        <a href="/register" class="auth-btn register-btn">Регистрация</a>
-      </div>
     </nav>
   </header>
 

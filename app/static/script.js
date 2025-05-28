@@ -12,3 +12,20 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     });
 });
+
+// Обработка ошибок авторизации
+document.addEventListener('DOMContentLoaded', function() {
+    // Перехватываем все fetch запросы
+    const originalFetch = window.fetch;
+    window.fetch = function() {
+        return originalFetch.apply(this, arguments)
+            .then(response => {
+                if (response.status === 401) {
+                    // Если пользователь не авторизован, перенаправляем на страницу входа
+                    window.location.href = '/login';
+                    return Promise.reject('Unauthorized');
+                }
+                return response;
+            });
+    };
+});

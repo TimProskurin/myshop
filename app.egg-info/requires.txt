@@ -1,0 +1,5 @@
+fastapi
+sqlalchemy
+alembic
+pytest
+pytest-asyncio
