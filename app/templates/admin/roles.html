@@ -1,0 +1,414 @@
+{% extends "base.html" %}
+
+{% block title %}Управление ролями{% endblock %}
+
+{% block extra_css %}
+<style>
+    .roles-container {
+        max-width: 1200px;
+        margin: 2rem auto;
+        padding: 0 1rem;
+    }
+
+    .roles-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 2rem;
+    }
+
+    .roles-table {
+        width: 100%;
+        border-collapse: collapse;
+        background: white;
+        border-radius: 8px;
+        overflow: hidden;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+
+    .roles-table th,
+    .roles-table td {
+        padding: 1rem;
+        text-align: left;
+        border-bottom: 1px solid #edf2f7;
+    }
+
+    .roles-table th {
+        background: #f7fafc;
+        font-weight: 600;
+        color: #4a5568;
+    }
+
+    .roles-table tr:hover {
+        background: #f7fafc;
+    }
+
+    .btn-add {
+        background: #4299e1;
+        color: white;
+        padding: 0.5rem 1rem;
+        border-radius: 4px;
+        text-decoration: none;
+        display: inline-flex;
+        align-items: center;
+        gap: 0.5rem;
+        transition: background-color 0.2s;
+    }
+
+    .btn-add:hover {
+        background: #3182ce;
+    }
+
+    .btn-edit,
+    .btn-delete {
+        padding: 0.5rem;
+        border-radius: 4px;
+        border: none;
+        cursor: pointer;
+        margin-right: 0.5rem;
+        transition: background-color 0.2s;
+    }
+
+    .btn-edit {
+        background: #48bb78;
+        color: white;
+    }
+
+    .btn-edit:hover {
+        background: #38a169;
+    }
+
+    .btn-delete {
+        background: #f56565;
+        color: white;
+    }
+
+    .btn-delete:hover {
+        background: #e53e3e;
+    }
+
+    /* Модальное окно */
+    .modal {
+        display: none;
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: rgba(0,0,0,0.5);
+        align-items: center;
+        justify-content: center;
+    }
+
+    .modal.active {
+        display: flex;
+    }
+
+    .modal-content {
+        background: white;
+        padding: 2rem;
+        border-radius: 8px;
+        width: 100%;
+        max-width: 500px;
+    }
+
+    .modal-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 1.5rem;
+    }
+
+    .modal-header h2 {
+        margin: 0;
+    }
+
+    .close-modal {
+        background: none;
+        border: none;
+        font-size: 1.5rem;
+        cursor: pointer;
+        color: #4a5568;
+    }
+
+    .form-group {
+        margin-bottom: 1rem;
+    }
+
+    .form-group label {
+        display: block;
+        margin-bottom: 0.5rem;
+        color: #4a5568;
+    }
+
+    .form-group input,
+    .form-group textarea {
+        width: 100%;
+        padding: 0.5rem;
+        border: 1px solid #e2e8f0;
+        border-radius: 4px;
+    }
+
+    .form-group textarea {
+        height: 100px;
+        resize: vertical;
+    }
+
+    .form-actions {
+        display: flex;
+        justify-content: flex-end;
+        gap: 1rem;
+        margin-top: 1.5rem;
+    }
+
+    .btn-cancel {
+        background: #e2e8f0;
+        color: #4a5568;
+    }
+
+    .btn-save {
+        background: #4299e1;
+        color: white;
+    }
+
+    .btn-cancel,
+    .btn-save {
+        padding: 0.5rem 1rem;
+        border: none;
+        border-radius: 4px;
+        cursor: pointer;
+        transition: background-color 0.2s;
+    }
+
+    .btn-cancel:hover {
+        background: #cbd5e0;
+    }
+
+    .btn-save:hover {
+        background: #3182ce;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="roles-container">
+    <div class="roles-header">
+        <h1>Управление ролями</h1>
+        <button class="btn-add" onclick="openModal('add')">
+            <span>+</span> Добавить роль
+        </button>
+    </div>
+
+    <table class="roles-table">
+        <thead>
+            <tr>
+                <th>ID</th>
+                <th>Название</th>
+                <th>Описание</th>
+                <th>Действия</th>
+            </tr>
+        </thead>
+        <tbody id="roles-list">
+            <!-- Роли будут добавлены через JavaScript -->
+        </tbody>
+    </table>
+</div>
+
+<!-- Модальное окно для добавления/редактирования роли -->
+<div id="roleModal" class="modal">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h2 id="modalTitle">Добавить роль</h2>
+            <button class="close-modal" onclick="closeModal()">&times;</button>
+        </div>
+        <form id="roleForm" onsubmit="handleSubmit(event)">
+            <input type="hidden" id="roleId">
+            <div class="form-group">
+                <label for="name">Название</label>
+                <input type="text" id="name" name="name" required>
+            </div>
+            <div class="form-group">
+                <label for="description">Описание</label>
+                <textarea id="description" name="description" required></textarea>
+            </div>
+            <div class="form-actions">
+                <button type="button" class="btn-cancel" onclick="closeModal()">Отмена</button>
+                <button type="submit" class="btn-save">Сохранить</button>
+            </div>
+        </form>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+let roles = [];
+let csrfToken = '';
+
+// Получение CSRF токена
+async function getCsrfToken() {
+    try {
+        const response = await fetch('/csrf-token');
+        const data = await response.json();
+        csrfToken = data.token;
+    } catch (error) {
+        console.error('Error getting CSRF token:', error);
+    }
+}
+
+// Загрузка ролей при загрузке страницы
+async function loadRoles() {
+    try {
+        const response = await fetch('/admin/roles/api');
+        if (!response.ok) {
+            throw new Error('Ошибка при загрузке ролей');
+        }
+        roles = await response.json();
+        renderRoles();
+    } catch (error) {
+        console.error('Error loading roles:', error);
+        alert('Произошла ошибка при загрузке ролей');
+    }
+}
+
+// Отрисовка таблицы ролей
+function renderRoles() {
+    const tbody = document.getElementById('roles-list');
+    tbody.innerHTML = roles.map(role => `
+        <tr>
+            <td>${role.role_id}</td>
+            <td>${role.name}</td>
+            <td>${role.description}</td>
+            <td>
+                <button class="btn-edit" onclick="openModal('edit', ${role.role_id})">
+                    ✎
+                </button>
+                <button class="btn-delete" onclick="deleteRole(${role.role_id})">
+                    ✕
+                </button>
+            </td>
+        </tr>
+    `).join('');
+}
+
+// Открытие модального окна
+function openModal(mode, roleId = null) {
+    const modal = document.getElementById('roleModal');
+    const form = document.getElementById('roleForm');
+    const title = document.getElementById('modalTitle');
+    
+    form.reset();
+    document.getElementById('roleId').value = '';
+    
+    if (mode === 'edit' && roleId) {
+        const role = roles.find(r => r.role_id === roleId);
+        if (role) {
+            document.getElementById('roleId').value = role.role_id;
+            document.getElementById('name').value = role.name;
+            document.getElementById('description').value = role.description;
+            title.textContent = 'Редактировать роль';
+        }
+    } else {
+        title.textContent = 'Добавить роль';
+    }
+    
+    modal.classList.add('active');
+}
+
+// Закрытие модального окна
+function closeModal() {
+    const modal = document.getElementById('roleModal');
+    modal.classList.remove('active');
+}
+
+// Обработка отправки формы
+async function handleSubmit(event) {
+    event.preventDefault();
+    
+    const roleId = document.getElementById('roleId').value;
+    const name = document.getElementById('name').value;
+    const description = document.getElementById('description').value;
+    
+    const role = {
+        name,
+        description,
+        permissions: [] // Добавляем пустой массив разрешений
+    };
+    
+    try {
+        let response;
+        if (roleId) {
+            // Редактирование существующей роли
+            response = await fetch(`/admin/roles/${roleId}`, {
+                method: 'PUT',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRF-Token': csrfToken
+                },
+                body: JSON.stringify(role)
+            });
+        } else {
+            // Создание новой роли
+            response = await fetch('/admin/roles', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRF-Token': csrfToken
+                },
+                body: JSON.stringify(role)
+            });
+        }
+        
+        if (response.ok) {
+            await loadRoles(); // Перезагрузка списка ролей
+            closeModal();
+        } else {
+            const error = await response.json();
+            alert(error.detail || 'Произошла ошибка');
+        }
+    } catch (error) {
+        console.error('Error saving role:', error);
+        alert('Произошла ошибка при сохранении роли');
+    }
+}
+
+// Удаление роли
+async function deleteRole(roleId) {
+    if (!confirm('Вы уверены, что хотите удалить эту роль?')) {
+        return;
+    }
+    
+    try {
+        const response = await fetch(`/admin/roles/${roleId}`, {
+            method: 'DELETE',
+            headers: {
+                'X-CSRF-Token': csrfToken
+            }
+        });
+        
+        if (response.ok) {
+            await loadRoles(); // Перезагрузка списка ролей
+        } else {
+            const error = await response.json();
+            alert(error.detail || 'Произошла ошибка при удалении роли');
+        }
+    } catch (error) {
+        console.error('Error deleting role:', error);
+        alert('Произошла ошибка при удалении роли');
+    }
+}
+
+// Инициализация при загрузке страницы
+document.addEventListener('DOMContentLoaded', async () => {
+    await getCsrfToken();
+    await loadRoles();
+});
+
+// Закрытие модального окна при клике вне его
+document.getElementById('roleModal').addEventListener('click', function(event) {
+    if (event.target === this) {
+        closeModal();
+    }
+});
+</script>
+{% endblock %} 

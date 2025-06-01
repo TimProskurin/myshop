@@ -1,0 +1,397 @@
+{% extends "base.html" %}
+
+{% block title %}Управление категориями{% endblock %}
+
+{% block extra_css %}
+<style>
+    .categories-container {
+        max-width: 1200px;
+        margin: 2rem auto;
+        padding: 0 1rem;
+    }
+
+    .categories-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 2rem;
+    }
+
+    .categories-table {
+        width: 100%;
+        border-collapse: collapse;
+        background: white;
+        border-radius: 8px;
+        overflow: hidden;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+
+    .categories-table th,
+    .categories-table td {
+        padding: 1rem;
+        text-align: left;
+        border-bottom: 1px solid #edf2f7;
+    }
+
+    .categories-table th {
+        background: #f7fafc;
+        font-weight: 600;
+        color: #4a5568;
+    }
+
+    .categories-table tr:hover {
+        background: #f7fafc;
+    }
+
+    .btn-add {
+        background: #48bb78;
+        color: white;
+        padding: 0.5rem 1rem;
+        border-radius: 4px;
+        border: none;
+        cursor: pointer;
+        transition: background-color 0.2s;
+    }
+
+    .btn-add:hover {
+        background: #38a169;
+    }
+
+    .btn-edit,
+    .btn-delete {
+        padding: 0.5rem;
+        border-radius: 4px;
+        border: none;
+        cursor: pointer;
+        margin-right: 0.5rem;
+        transition: background-color 0.2s;
+    }
+
+    .btn-edit {
+        background: #4299e1;
+        color: white;
+    }
+
+    .btn-edit:hover {
+        background: #3182ce;
+    }
+
+    .btn-delete {
+        background: #f56565;
+        color: white;
+    }
+
+    .btn-delete:hover {
+        background: #e53e3e;
+    }
+
+    /* Модальное окно */
+    .modal {
+        display: none;
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: rgba(0,0,0,0.5);
+        align-items: center;
+        justify-content: center;
+    }
+
+    .modal.active {
+        display: flex;
+    }
+
+    .modal-content {
+        background: white;
+        padding: 2rem;
+        border-radius: 8px;
+        width: 100%;
+        max-width: 500px;
+    }
+
+    .modal-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 1.5rem;
+    }
+
+    .modal-header h2 {
+        margin: 0;
+    }
+
+    .close-modal {
+        background: none;
+        border: none;
+        font-size: 1.5rem;
+        cursor: pointer;
+        color: #4a5568;
+    }
+
+    .form-group {
+        margin-bottom: 1rem;
+    }
+
+    .form-group label {
+        display: block;
+        margin-bottom: 0.5rem;
+        color: #4a5568;
+    }
+
+    .form-group input,
+    .form-group textarea {
+        width: 100%;
+        padding: 0.5rem;
+        border: 1px solid #e2e8f0;
+        border-radius: 4px;
+    }
+
+    .form-actions {
+        display: flex;
+        justify-content: flex-end;
+        gap: 1rem;
+        margin-top: 1.5rem;
+    }
+
+    .btn-cancel {
+        background: #e2e8f0;
+        color: #4a5568;
+    }
+
+    .btn-save {
+        background: #4299e1;
+        color: white;
+    }
+
+    .btn-cancel,
+    .btn-save {
+        padding: 0.5rem 1rem;
+        border: none;
+        border-radius: 4px;
+        cursor: pointer;
+        transition: background-color 0.2s;
+    }
+
+    .btn-cancel:hover {
+        background: #cbd5e0;
+    }
+
+    .btn-save:hover {
+        background: #3182ce;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="categories-container">
+    <div class="categories-header">
+        <h1>Управление категориями</h1>
+        <button class="btn-add" onclick="openModal()">Добавить категорию</button>
+    </div>
+
+    <table class="categories-table">
+        <thead>
+            <tr>
+                <th>ID</th>
+                <th>Название</th>
+                <th>Описание</th>
+                <th>Действия</th>
+            </tr>
+        </thead>
+        <tbody id="categories-list">
+            <!-- Категории будут добавлены через JavaScript -->
+        </tbody>
+    </table>
+</div>
+
+<!-- Модальное окно для добавления/редактирования категории -->
+<div id="categoryModal" class="modal">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h2 id="modalTitle">Добавить категорию</h2>
+            <button class="close-modal" onclick="closeModal()">&times;</button>
+        </div>
+        <form id="categoryForm" onsubmit="handleSubmit(event)">
+            <input type="hidden" id="categoryId">
+            <div class="form-group">
+                <label for="categoryName">Название</label>
+                <input type="text" id="categoryName" required>
+            </div>
+            <div class="form-group">
+                <label for="categoryDescription">Описание</label>
+                <textarea id="categoryDescription" rows="3"></textarea>
+            </div>
+            <div class="form-actions">
+                <button type="button" class="btn-cancel" onclick="closeModal()">Отмена</button>
+                <button type="submit" class="btn-save">Сохранить</button>
+            </div>
+        </form>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+let categories = [];
+let csrfToken = '';
+
+// Получение CSRF токена
+async function getCsrfToken() {
+    try {
+        const response = await fetch('/csrf-token');
+        if (!response.ok) throw new Error('Failed to get CSRF token');
+        const data = await response.json();
+        csrfToken = document.cookie
+            .split('; ')
+            .find(row => row.startsWith('fastapi-csrf-token='))
+            .split('=')[1];
+    } catch (error) {
+        console.error('Error getting CSRF token:', error);
+        alert('Ошибка при получении CSRF токена');
+    }
+}
+
+// Загрузка категорий при загрузке страницы
+async function loadData() {
+    try {
+        await getCsrfToken();
+        
+        const response = await fetch('/admin/categories/api');
+        if (!response.ok) throw new Error('Ошибка при загрузке категорий');
+        categories = await response.json();
+        renderCategories();
+    } catch (error) {
+        console.error('Error loading data:', error);
+        alert('Произошла ошибка при загрузке данных');
+    }
+}
+
+// Отрисовка таблицы категорий
+function renderCategories() {
+    const tbody = document.getElementById('categories-list');
+    tbody.innerHTML = categories.map(category => `
+        <tr>
+            <td>${category.category_id}</td>
+            <td>${category.category_name}</td>
+            <td>${category.description || ''}</td>
+            <td>
+                <button class="btn-edit" onclick="openModal(${category.category_id})">
+                    Изменить
+                </button>
+                <button class="btn-delete" onclick="deleteCategory(${category.category_id})">
+                    Удалить
+                </button>
+            </td>
+        </tr>
+    `).join('');
+}
+
+// Открытие модального окна
+function openModal(categoryId = null) {
+    const modal = document.getElementById('categoryModal');
+    const form = document.getElementById('categoryForm');
+    const title = document.getElementById('modalTitle');
+    
+    if (categoryId) {
+        const category = categories.find(c => c.category_id === categoryId);
+        if (!category) return;
+
+        title.textContent = 'Изменить категорию';
+        document.getElementById('categoryId').value = category.category_id;
+        document.getElementById('categoryName').value = category.category_name;
+        document.getElementById('categoryDescription').value = category.description || '';
+    } else {
+        title.textContent = 'Добавить категорию';
+        form.reset();
+        document.getElementById('categoryId').value = '';
+    }
+    
+    modal.classList.add('active');
+}
+
+// Закрытие модального окна
+function closeModal() {
+    const modal = document.getElementById('categoryModal');
+    modal.classList.remove('active');
+}
+
+// Обработка отправки формы
+async function handleSubmit(event) {
+    event.preventDefault();
+    
+    const categoryId = document.getElementById('categoryId').value;
+    const categoryName = document.getElementById('categoryName').value;
+    const description = document.getElementById('categoryDescription').value;
+    
+    const data = {
+        category_name: categoryName,
+        description: description
+    };
+    
+    try {
+        let response;
+        if (categoryId) {
+            // Обновление существующей категории
+            response = await fetch(`/admin/categories/${categoryId}`, {
+                method: 'PUT',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRF-Token': csrfToken
+                },
+                body: JSON.stringify(data)
+            });
+        } else {
+            // Создание новой категории
+            response = await fetch('/admin/categories', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRF-Token': csrfToken
+                },
+                body: JSON.stringify(data)
+            });
+        }
+
+        if (!response.ok) throw new Error('Ошибка при сохранении категории');
+
+        await loadData();
+        closeModal();
+    } catch (error) {
+        console.error('Error saving category:', error);
+        alert('Произошла ошибка при сохранении категории');
+    }
+}
+
+// Удаление категории
+async function deleteCategory(categoryId) {
+    if (!confirm('Вы уверены, что хотите удалить эту категорию?')) return;
+    
+    try {
+        const response = await fetch(`/admin/categories/${categoryId}`, {
+            method: 'DELETE',
+            headers: {
+                'X-CSRF-Token': csrfToken
+            }
+        });
+        
+        if (!response.ok) throw new Error('Ошибка при удалении категории');
+        
+        await loadData();
+    } catch (error) {
+        console.error('Error deleting category:', error);
+        alert('Произошла ошибка при удалении категории');
+    }
+}
+
+// Закрытие модального окна при клике вне его
+document.getElementById('categoryModal').addEventListener('click', function(event) {
+    if (event.target === this) {
+        closeModal();
+    }
+});
+
+// Загрузка данных при загрузке страницы
+document.addEventListener('DOMContentLoaded', loadData);
+</script>
+{% endblock %} 

@@ -19,8 +19,6 @@
             <div id="error-message"></div>
 
             <form id="registerForm" class="auth-form">
-                <input type="hidden" id="csrf_token" name="csrf_token">
-
                 <div class="form-group">
                     <label for="first_name">Имя</label>
                     <input
@@ -29,6 +27,8 @@
                         name="first_name"
                         placeholder="Введите ваше имя"
                         required
+                        pattern="[A-Za-zА-Яа-яЁё\s]{2,50}"
+                        title="Имя должно содержать только буквы и пробелы"
                         autocomplete="given-name"
                     >
                 </div>
@@ -41,6 +41,8 @@
                         name="last_name"
                         placeholder="Введите вашу фамилию"
                         required
+                        pattern="[A-Za-zА-Яа-яЁё\s]{2,50}"
+                        title="Фамилия должна содержать только буквы и пробелы"
                         autocomplete="family-name"
                     >
                 </div>
@@ -53,6 +55,8 @@
                         name="email"
                         placeholder="Введите ваш email"
                         required
+                        pattern="[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}"
+                        title="Введите корректный email адрес"
                         autocomplete="email"
                     >
                 </div>
@@ -65,6 +69,8 @@
                         name="phone"
                         placeholder="Введите ваш телефон"
                         required
+                        pattern="[0-9+]{10,15}"
+                        title="Телефон должен содержать от 10 до 15 цифр"
                         autocomplete="tel"
                     >
                 </div>
@@ -77,6 +83,8 @@
                         name="address"
                         placeholder="Введите ваш адрес"
                         required
+                        minlength="5"
+                        maxlength="200"
                         autocomplete="street-address"
                     >
                 </div>
@@ -89,6 +97,8 @@
                         name="password"
                         placeholder="Придумайте пароль"
                         required
+                        pattern="^(?=.*[A-Za-z])(?=.*\d)[A-Za-z\d]{8,}$"
+                        title="Пароль должен содержать минимум 8 символов, включая буквы и цифры"
                         autocomplete="new-password"
                     >
                 </div>
@@ -103,41 +113,97 @@
     </div>
 
     <script>
-        function getCookie(name) {
-            const value = `; ${document.cookie}`;
-            const parts = value.split(`; ${name}=`);
-            return parts.length === 2 ? parts.pop().split(';').shift() : null;
+        // Функция для безопасного экранирования HTML
+        function escapeHtml(unsafe) {
+            return unsafe
+                .replace(/&/g, "&amp;")
+                .replace(/</g, "&lt;")
+                .replace(/>/g, "&gt;")
+                .replace(/"/g, "&quot;")
+                .replace(/'/g, "&#039;");
         }
 
         function showError(message) {
             const errorElement = document.getElementById('error-message');
-            errorElement.textContent = message;
-            errorElement.classList.add('visible');
+            errorElement.textContent = escapeHtml(message);
+            errorElement.style.display = 'block';
+            errorElement.classList.add('error');
             setTimeout(() => {
-                errorElement.classList.remove('visible');
+                errorElement.classList.remove('error');
+                errorElement.style.display = 'none';
             }, 5000);
         }
 
-        document.addEventListener('DOMContentLoaded', async () => {
+        let csrfToken = null;
+
+        // Инициализация CSRF при загрузке страницы
+        async function initializeCsrf() {
             try {
-                await fetch('/csrf-token', { credentials: 'include' });
-                const csrfToken = getCookie('fastapi-csrf-token');
-                if (csrfToken) {
-                    document.getElementById('csrf_token').value = csrfToken;
+                const response = await fetch('/csrf-token', {
+                    method: 'GET',
+                    credentials: 'include',
+                    headers: {
+                        'Accept': 'application/json'
+                    }
+                });
+
+                if (!response.ok) {
+                    throw new Error('Ошибка получения CSRF токена');
                 }
+
+                const data = await response.json();
+                if (!data.token) {
+                    throw new Error('CSRF токен отсутствует в ответе');
+                }
+
+                csrfToken = data.token;
+                return true;
             } catch (error) {
                 console.error('Ошибка инициализации CSRF:', error);
-                showError('Ошибка безопасности. Перезагрузите страницу.');
+                showError('Ошибка безопасности. Пожалуйста, перезагрузите страницу.');
+                return false;
             }
-        });
+        }
+
+        // Валидация формы перед отправкой
+        function validateForm(formData) {
+            const nameRegex = /^[A-Za-zА-Яа-яЁё\s]{2,50}$/;
+            const emailRegex = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
+            const phoneRegex = /^[0-9+]{10,15}$/;
+            const passwordRegex = /^(?=.*[A-Za-z])(?=.*\d)[A-Za-z\d]{8,}$/;
+
+            if (!nameRegex.test(formData.first_name)) {
+                throw new Error('Некорректное имя');
+            }
+            if (!nameRegex.test(formData.last_name)) {
+                throw new Error('Некорректная фамилия');
+            }
+            if (!emailRegex.test(formData.email)) {
+                throw new Error('Некорректный email');
+            }
+            if (!phoneRegex.test(formData.phone)) {
+                throw new Error('Некорректный номер телефона');
+            }
+            if (!passwordRegex.test(formData.password)) {
+                throw new Error('Пароль должен содержать минимум 8 символов, включая буквы и цифры');
+            }
+            if (formData.address.length < 5) {
+                throw new Error('Адрес должен содержать минимум 5 символов');
+            }
+        }
+
+        // Инициализируем CSRF при загрузке страницы
+        document.addEventListener('DOMContentLoaded', initializeCsrf);
 
         document.getElementById('registerForm').addEventListener('submit', async (event) => {
             event.preventDefault();
 
-            const csrfToken = getCookie('fastapi-csrf-token');
             if (!csrfToken) {
-                showError('Ошибка CSRF-токена');
-                return;
+                await initializeCsrf();
+                if (!csrfToken) {
+                    showError('Ошибка безопасности. Пожалуйста, перезагрузите страницу.');
+                    return;
+                }
             }
 
             const formData = new FormData(event.target);
@@ -151,13 +217,18 @@
             };
 
             try {
+                // Валидация данных формы
+                validateForm(userData);
+
                 const response = await fetch('/register', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
-                        'X-CSRF-Token': csrfToken
+                        'X-CSRF-Token': csrfToken,
+                        'Accept': 'application/json'
                     },
-                    body: JSON.stringify(userData)
+                    body: JSON.stringify(userData),
+                    credentials: 'include'
                 });
 
                 const data = await response.json();
@@ -166,11 +237,16 @@
                     throw new Error(data.detail || 'Ошибка при регистрации');
                 }
 
-                alert('Регистрация успешна!');
-                window.location.href = '/login';
+                // Успешная регистрация
+                window.location.href = data.redirect || '/login';
             } catch (error) {
                 showError(error.message);
                 console.error('Ошибка:', error);
+                
+                // Если ошибка связана с CSRF, пробуем переинициализировать токен
+                if (error.message.includes('CSRF') || error.message.includes('Security check')) {
+                    await initializeCsrf();
+                }
             }
         });
     </script>

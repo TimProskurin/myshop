@@ -1,21 +1,18 @@
 from datetime import datetime, timezone, timedelta
 from typing import AsyncGenerator
-#from fastapi import FastAPI, HTTPException, Depends, status, Request, Form
+from fastapi import FastAPI, Response, Depends, HTTPException, Request, status
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
-#from fastapi.security import OAuth2PasswordRequestForm
-#from sqlalchemy.ext.asyncio import AsyncSession
+from fastapi.responses import JSONResponse, RedirectResponse
+from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from app.database import get_async_session
 from app import models, schemas, security
 from app.models import Category, Product, User
 from app.schemas import UserCreate
-#from app.security import verify_password
+from app.security import verify_password
 import bcrypt
-from fastapi import FastAPI, Response, Depends, HTTPException, Request, status
-from fastapi.responses import JSONResponse, RedirectResponse
 from itsdangerous import URLSafeSerializer
-from sqlalchemy.ext.asyncio import AsyncSession
 from app.database import async_session
 from slowapi import Limiter
 from slowapi.util import get_remote_address
@@ -23,11 +20,20 @@ from slowapi.errors import RateLimitExceeded
 from redis import asyncio as aioredis
 from dotenv import load_dotenv
 import os
+import html
+from pydantic import ValidationError
+from app.utils.logging import log_user_action, format_log_details, UserActions
+
 application = FastAPI()
 
 limiter = Limiter(key_func=get_remote_address, default_limits=["10/minute"])
 
-templates = Jinja2Templates(directory="app/templates", auto_reload=True)
+# Configure Jinja2 with explicit autoescape
+templates = Jinja2Templates(directory="app/templates")
+templates.env.autoescape = True
+
+# Add custom filter for extra HTML escaping when needed
+templates.env.filters['escape_special'] = lambda value: html.escape(str(value), quote=True)
 
 application.mount("/static", StaticFiles(directory="app/static"), name="static")
 
@@ -72,43 +78,87 @@ async def shutdown():
 async def ignore_chrome_devtools():
     return Response(status_code=200)
 
+@application.get("/csrf-token")
+async def get_csrf_token(response: Response):
+    try:
+        # Генерируем простой токен без сериализации
+        csrf_token = os.urandom(32).hex()
+        
+        # Устанавливаем токен в куки
+        response.set_cookie(
+            key="fastapi-csrf-token",
+            value=csrf_token,
+            httponly=False,
+            samesite="strict",
+            secure=False,  # В продакшене установить True
+            path="/"
+        )
+        
+        print(f"Generated CSRF token: {csrf_token}")  # Отладочная информация
+        return {"token": csrf_token}
+    except Exception as e:
+        print(f"Error generating CSRF token: {e}")  # Отладочная информация
+        raise HTTPException(
+            status_code=500,
+            detail="Ошибка генерации токена безопасности"
+        )
+
 @application.middleware("http")
 async def csrf_middleware(request: Request, call_next):
     if request.method in {"GET", "HEAD", "OPTIONS"}:
         return await call_next(request)
 
-    csrf_from_header = request.headers.get("X-CSRF-Token")
-    csrf_from_cookie = request.cookies.get("fastapi-csrf-token")
-
-    if not csrf_from_header or not csrf_from_cookie:
-        return JSONResponse({"detail": "CSRF token missing"}, 403)
-
-    serializer = URLSafeSerializer(SECRET_KEY)
     try:
-        data_header = serializer.loads(csrf_from_header)
-        data_cookie = serializer.loads(csrf_from_cookie)
-    except Exception:
-        return JSONResponse({"detail": "Invalid CSRF token"}, 403)
+        csrf_from_header = request.headers.get("X-CSRF-Token")
+        csrf_from_cookie = request.cookies.get("fastapi-csrf-token")
 
-    if data_header != data_cookie:
-        return JSONResponse({"detail": "CSRF token mismatch"}, 403)
+        print(f"CSRF from header: {csrf_from_header}")  # Отладочная информация
+        print(f"CSRF from cookie: {csrf_from_cookie}")  # Отладочная информация
 
-    return await call_next(request)
+        if not csrf_from_header or not csrf_from_cookie:
+            print("Missing CSRF token")  # Отладочная информация
+            return JSONResponse(
+                {"detail": "CSRF token missing"}, 
+                status_code=403
+            )
 
-@application.get("/csrf-token")
-async def get_csrf_token(response: Response):
-    serializer = URLSafeSerializer(SECRET_KEY)
-    csrf_token = serializer.dumps({"csrf": os.urandom(24).hex()})
-    print(f"🔑 Генерация CSRF-токена: {csrf_token}")  # Логирование токена
-    response.set_cookie(
-        key="fastapi-csrf-token",
-        value=csrf_token,
-        httponly=False,
-        samesite="strict",
-        secure=False,
-        path="/",
+        # Простое сравнение токенов
+        if csrf_from_header != csrf_from_cookie:
+            print("CSRF token mismatch")  # Отладочная информация
+            return JSONResponse(
+                {"detail": "CSRF token mismatch"}, 
+                status_code=403
+            )
+
+        return await call_next(request)
+    except Exception as e:
+        print(f"CSRF middleware error: {e}")  # Отладочная информация
+        return JSONResponse(
+            {"detail": "Security check failed"}, 
+            status_code=403
+        )
+
+@application.middleware("http")
+async def add_security_headers(request: Request, call_next):
+    response = await call_next(request)
+    
+    # Add Content Security Policy header
+    response.headers["Content-Security-Policy"] = (
+        "default-src 'self'; "
+        "script-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
+        "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
+        "font-src 'self' https://fonts.gstatic.com; "
+        "img-src 'self' data: https:; "
+        "connect-src 'self'"
     )
-    return {"message": "CSRF token generated"}
+    
+    # Add other security headers
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["X-XSS-Protection"] = "1; mode=block"
+    response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    
+    return response
 
 # Эндпоинт авторизации (логин)
 @limiter.limit("5/minute")
@@ -120,48 +170,42 @@ async def login(
         db: AsyncSession = Depends(get_db),
         redis: aioredis.Redis = Depends(get_redis)
 ):
-    # 1. Проверка брутфорса через Redis
-    ip = request.client.host
-    attempts_key = f"auth_attempts:{ip}"
-    block_key = f"auth_block:{ip}"
-
-    # Проверяем блокировку
-    if await redis.exists(block_key):
-        raise HTTPException(status_code=429, detail="Слишком много попыток. Попробуйте через 1 минуту")
-
-    # Получаем текущее количество попыток
-    current_attempts = await redis.get(attempts_key)
-    current_attempts = int(current_attempts) if current_attempts else 0
-
-    # Лимит: 5 попыток в минуту
-    if current_attempts >= 5:
-        await redis.setex(block_key, timedelta(minutes=1).seconds, "1")
-        await redis.delete(attempts_key)
-        raise HTTPException(status_code=429, detail="Превышено количество попыток")
-
     try:
-        # 2. Ваша существующая логика аутентификации
         db_user = await authenticate_user(db, user.email, user.password)
         access_token = security.create_access_token(data={"sub": db_user.email})
 
-        # Сбрасываем счетчик попыток при успехе
-        await redis.delete(attempts_key)
+        # Логируем успешный вход
+        await log_user_action(
+            db=db,
+            user=db_user,
+            action=UserActions.LOGIN,
+            details=format_log_details({"email": db_user.email}),
+            request=request
+        )
         
-        # Устанавливаем токен в куки
         response.set_cookie(
             key="access_token",
             value=access_token,
             httponly=True,
             samesite="lax",
-            max_age=1800  # 30 минут
+            max_age=1800
         )
         
         return {"status": "success", "redirect": "/"}
 
     except HTTPException as e:
-        # Увеличиваем счетчик при неудаче
-        await redis.incr(attempts_key)
-        await redis.expire(attempts_key, timedelta(minutes=1).seconds)
+        # Логируем неудачную попытку входа
+        if e.status_code == 401:  # Неверный пароль
+            result = await db.execute(select(models.User).filter(models.User.email == user.email))
+            failed_user = result.scalars().first()
+            if failed_user:
+                await log_user_action(
+                    db=db,
+                    user=failed_user,
+                    action="login_failed",
+                    details="Неверный пароль",
+                    request=request
+                )
         raise e
 
 # Страница логина
@@ -171,52 +215,115 @@ async def login_page(request: Request):
 
 
 # Эндпоинт регистрации
-@application.post("/register", response_model=schemas.Token)
+@application.post("/register")
 async def register(
-    user: UserCreate,
+    request: Request,
     response: Response,
     db: AsyncSession = Depends(get_db)
 ):
-    # Проверка существующего пользователя
-    result = await db.execute(select(models.User).filter(models.User.email == user.email))
-    existing_user = result.scalars().first()
-    if existing_user:
-        raise HTTPException(status_code=400, detail="Пользователь с таким email уже зарегистрирован")
-
-    new_user = models.User(
-        first_name=user.first_name,
-        last_name=user.last_name,
-        email=user.email,
-        phone=user.phone,
-        address=user.address,
-        registration_date=datetime.now(timezone.utc).replace(tzinfo=None),
-        password=user.password,
-    )
-
-    db.add(new_user)
     try:
-        await db.commit()
+        user_data = await request.json()
+        print(f"Received registration data: {user_data}")  # Логируем полученные данные
+        
+        try:
+            # Создаем объект UserCreate
+            user = schemas.UserCreate(
+                email=security.sanitize_input(user_data.get('email')),
+                password=user_data.get('password'),
+                first_name=security.sanitize_input(user_data.get('first_name')),
+                last_name=security.sanitize_input(user_data.get('last_name')),
+                phone=security.sanitize_input(user_data.get('phone')),
+                address=security.sanitize_input(user_data.get('address'))
+            )
+            print("UserCreate object created successfully")  # Логируем успешное создание объекта
+        except ValidationError as e:
+            print(f"Validation error: {str(e)}")  # Логируем ошибку валидации
+            return JSONResponse(
+                status_code=422,
+                content={"detail": "Ошибка валидации данных", "errors": e.errors()}
+            )
+        
+        # Проверка существующего пользователя
+        result = await db.execute(select(models.User).filter(models.User.email == user.email))
+        existing_user = result.scalars().first()
+        if existing_user:
+            print(f"User with email {user.email} already exists")  # Логируем существующего пользователя
+            return JSONResponse(
+                status_code=400,
+                content={"detail": "Пользователь с таким email уже зарегистрирован"}
+            )
+
+        try:
+            # Хешируем пароль
+            hashed_password = bcrypt.hashpw(user.password.encode('utf-8'), bcrypt.gensalt())
+            print("Password hashed successfully")  # Логируем успешное хеширование
+        except Exception as e:
+            print(f"Error hashing password: {str(e)}")  # Логируем ошибку хеширования
+            raise
+
+        try:
+            # Создаем нового пользователя
+            new_user = models.User(
+                first_name=user.first_name,
+                last_name=user.last_name,
+                email=user.email,
+                phone=user.phone,
+                address=user.address,
+                registration_date=datetime.now(timezone.utc).replace(tzinfo=None),
+                password=hashed_password.decode('utf-8'),
+            )
+            print("User object created successfully")  # Логируем создание объекта пользователя
+
+            db.add(new_user)
+            await db.commit()
+            await db.refresh(new_user)
+            print("User saved to database successfully")  # Логируем успешное сохранение
+
+            # Логируем регистрацию
+            await log_user_action(
+                db=db,
+                user=new_user,
+                action=UserActions.REGISTER,
+                details=format_log_details({
+                    "email": new_user.email,
+                    "first_name": new_user.first_name,
+                    "last_name": new_user.last_name
+                }),
+                request=request
+            )
+            print("User action logged successfully")  # Логируем успешное логирование
+
+            # Создаем токен доступа
+            access_token = security.create_access_token(data={"sub": new_user.email})
+            print("Access token created successfully")  # Логируем создание токена
+            
+            response.set_cookie(
+                key="access_token",
+                value=access_token,
+                httponly=True,
+                samesite="lax",
+                max_age=1800
+            )
+            
+            return JSONResponse(
+                status_code=200,
+                content={"status": "success", "redirect": "/login"}
+            )
+
+        except Exception as e:
+            print(f"Error creating user: {str(e)}")  # Логируем ошибку создания пользователя
+            raise
+
     except Exception as e:
-        await db.rollback()
-        print(f"Ошибка при коммите: {e}")
-        raise HTTPException(status_code=400, detail=f"Ошибка при регистрации пользователя: {str(e)}")
-
-    await db.refresh(new_user)
-
-    print(f"Создание токена для: {new_user.email}")
-    access_token = security.create_access_token(data={"sub": new_user.email})
-    print(f"Токен создан: {access_token}")
-    
-    # Устанавливаем токен в куки
-    response.set_cookie(
-        key="access_token",
-        value=access_token,
-        httponly=True,
-        samesite="lax",
-        max_age=1800  # 30 минут
-    )
-    
-    return {"status": "success", "redirect": "/"}
+        print(f"Error during registration: {str(e)}")  # Детальное логирование ошибки
+        print(f"Error type: {type(e)}")  # Логируем тип ошибки
+        import traceback
+        print(f"Traceback: {traceback.format_exc()}")  # Логируем полный стек ошибки
+        await db.rollback()  # Откатываем транзакцию в случае ошибки
+        return JSONResponse(
+            status_code=500,
+            content={"detail": f"Ошибка при регистрации пользователя: {str(e)}"}
+        )
 
 @application.get("/register")
 async def register_page(request: Request):
@@ -304,46 +411,63 @@ async def profile(
 # Обновление данных пользователя
 @application.post("/profile/update")
 async def update_profile(
+    user_data: dict,
     request: Request,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(login_required)
 ):
     try:
-        data = await request.json()
+        sanitized_data = {
+            key: security.sanitize_input(value)
+            for key, value in user_data.items()
+            if key not in ['password']
+        }
         
-        # Проверяем, не занят ли email другим пользователем
-        if data.get("email") and data["email"] != current_user.email:
-            result = await db.execute(
-                select(User).where(User.email == data["email"])
-            )
-            if result.scalars().first():
-                raise HTTPException(status_code=400, detail="Email уже используется")
-        
-        # Проверяем, не занят ли телефон другим пользователем
-        if data.get("phone") and data["phone"] != current_user.phone:
-            result = await db.execute(
-                select(User).where(User.phone == data["phone"])
-            )
-            if result.scalars().first():
-                raise HTTPException(status_code=400, detail="Телефон уже используется")
-        
+        # Сохраняем старые данные для лога
+        old_data = {
+            "email": current_user.email,
+            "phone": current_user.phone,
+            "first_name": current_user.first_name,
+            "last_name": current_user.last_name,
+            "address": current_user.address
+        }
+
         # Обновляем данные пользователя
-        if "first_name" in data:
-            current_user.first_name = data["first_name"]
-        if "email" in data:
-            current_user.email = data["email"]
-        if "phone" in data:
-            current_user.phone = data["phone"]
+        if "first_name" in sanitized_data:
+            current_user.first_name = sanitized_data["first_name"]
+        if "email" in sanitized_data:
+            current_user.email = sanitized_data["email"]
+        if "phone" in sanitized_data:
+            current_user.phone = sanitized_data["phone"]
+        if "address" in sanitized_data:
+            current_user.address = sanitized_data["address"]
         
         await db.commit()
-        return {"status": "success"}
+
+        # Логируем изменения
+        await log_user_action(
+            db=db,
+            user=current_user,
+            action=UserActions.PROFILE_UPDATE,
+            details=format_log_details({
+                "old_data": old_data,
+                "new_data": sanitized_data
+            }),
+            request=request
+        )
+
+        return JSONResponse(
+            status_code=200,
+            content={"status": "success", "message": "Профиль успешно обновлен"}
+        )
         
-    except HTTPException as e:
-        await db.rollback()
-        raise e
     except Exception as e:
         await db.rollback()
-        raise HTTPException(status_code=500, detail=str(e))
+        print(f"Error updating profile: {str(e)}")
+        return JSONResponse(
+            status_code=500,
+            content={"detail": "Ошибка при обновлении профиля"}
+        )
 
 # Обновляем существующие маршруты для поддержки авторизации
 @application.get("/")
@@ -388,12 +512,25 @@ async def category_detail(
 
 # Эндпоинт выхода
 @application.get("/logout")
-async def logout():
+async def logout(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    if current_user:
+        await log_user_action(
+            db=db,
+            user=current_user,
+            action=UserActions.LOGOUT,
+            details=None,
+            request=request
+        )
+
     response = RedirectResponse(url="/login")
     response.delete_cookie(
         key="access_token",
-        path="/",  # Важно указать путь, чтобы удалить куки для всего домена
-        secure=False,  # В продакшене должно быть True
+        path="/",
+        secure=False,
         httponly=True
     )
     return response
@@ -430,3 +567,43 @@ async def product_detail(
         })
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+@application.exception_handler(HTTPException)
+async def custom_http_exception_handler(request: Request, exc: HTTPException):
+    # Check for potential XSS patterns in the request
+    potential_xss = False
+    suspicious_patterns = ['<script>', 'javascript:', 'onerror=', 'onload=', 'eval(']
+    
+    # Check URL parameters
+    for param in request.query_params.values():
+        if any(pattern.lower() in param.lower() for pattern in suspicious_patterns):
+            potential_xss = True
+            break
+    
+    # Check headers
+    for header in request.headers.values():
+        if any(pattern.lower() in header.lower() for pattern in suspicious_patterns):
+            potential_xss = True
+            break
+    
+    if potential_xss:
+        # Log the attempt (you should implement proper logging)
+        print(f"Potential XSS attempt detected from IP: {request.client.host}")
+        return templates.TemplateResponse(
+            "error.html",
+            {
+                "request": request,
+                "error": "Обнаружена потенциальная угроза безопасности"
+            },
+            status_code=400
+        )
+    
+    # Handle other exceptions normally
+    return templates.TemplateResponse(
+        "error.html",
+        {
+            "request": request,
+            "error": exc.detail
+        },
+        status_code=exc.status_code
+    )

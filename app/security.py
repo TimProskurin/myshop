@@ -4,6 +4,8 @@ from jose import JWTError, jwt
 from dotenv import load_dotenv
 import os
 from fastapi import HTTPException, status
+import html
+import re
 
 
 load_dotenv()
@@ -43,5 +45,22 @@ async def get_password_hash(password: str) -> str:
 # Функция для проверки пароля
 async def verify_password(plain_password: str, hashed_password: str) -> bool:
     return pwd_context.verify(plain_password, hashed_password)
+
+def sanitize_input(value: str) -> str:
+    """
+    Sanitize user input to prevent XSS attacks.
+    """
+    if not isinstance(value, str):
+        return str(value)
+    
+    # HTML escape
+    value = html.escape(value, quote=True)
+    
+    # Remove potentially dangerous patterns
+    value = re.sub(r'javascript:', '', value, flags=re.IGNORECASE)
+    value = re.sub(r'data:', '', value, flags=re.IGNORECASE)
+    value = re.sub(r'vbscript:', '', value, flags=re.IGNORECASE)
+    
+    return value
 
 

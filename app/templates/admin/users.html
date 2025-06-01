@@ -1,0 +1,383 @@
+{% extends "base.html" %}
+
+{% block title %}Управление пользователями{% endblock %}
+
+{% block extra_css %}
+<style>
+    .users-container {
+        max-width: 1200px;
+        margin: 2rem auto;
+        padding: 0 1rem;
+    }
+
+    .users-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 2rem;
+    }
+
+    .users-table {
+        width: 100%;
+        border-collapse: collapse;
+        background: white;
+        border-radius: 8px;
+        overflow: hidden;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+
+    .users-table th,
+    .users-table td {
+        padding: 1rem;
+        text-align: left;
+        border-bottom: 1px solid #edf2f7;
+    }
+
+    .users-table th {
+        background: #f7fafc;
+        font-weight: 600;
+        color: #4a5568;
+    }
+
+    .users-table tr:hover {
+        background: #f7fafc;
+    }
+
+    .role-badge {
+        display: inline-block;
+        padding: 0.25rem 0.5rem;
+        border-radius: 4px;
+        font-size: 0.875rem;
+        margin: 0.125rem;
+    }
+
+    .role-badge.admin {
+        background: #fed7d7;
+        color: #c53030;
+    }
+
+    .role-badge.moderator {
+        background: #feebc8;
+        color: #c05621;
+    }
+
+    .role-badge.user {
+        background: #e2e8f0;
+        color: #2d3748;
+    }
+
+    .btn-edit {
+        background: #48bb78;
+        color: white;
+        padding: 0.5rem;
+        border-radius: 4px;
+        border: none;
+        cursor: pointer;
+        margin-right: 0.5rem;
+        transition: background-color 0.2s;
+    }
+
+    .btn-edit:hover {
+        background: #38a169;
+    }
+
+    /* Модальное окно */
+    .modal {
+        display: none;
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: rgba(0,0,0,0.5);
+        align-items: center;
+        justify-content: center;
+    }
+
+    .modal.active {
+        display: flex;
+    }
+
+    .modal-content {
+        background: white;
+        padding: 2rem;
+        border-radius: 8px;
+        width: 100%;
+        max-width: 500px;
+    }
+
+    .modal-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 1.5rem;
+    }
+
+    .modal-header h2 {
+        margin: 0;
+    }
+
+    .close-modal {
+        background: none;
+        border: none;
+        font-size: 1.5rem;
+        cursor: pointer;
+        color: #4a5568;
+    }
+
+    .form-group {
+        margin-bottom: 1rem;
+    }
+
+    .form-group label {
+        display: block;
+        margin-bottom: 0.5rem;
+        color: #4a5568;
+    }
+
+    .role-checkbox {
+        margin-bottom: 0.5rem;
+    }
+
+    .form-actions {
+        display: flex;
+        justify-content: flex-end;
+        gap: 1rem;
+        margin-top: 1.5rem;
+    }
+
+    .btn-cancel {
+        background: #e2e8f0;
+        color: #4a5568;
+    }
+
+    .btn-save {
+        background: #4299e1;
+        color: white;
+    }
+
+    .btn-cancel,
+    .btn-save {
+        padding: 0.5rem 1rem;
+        border: none;
+        border-radius: 4px;
+        cursor: pointer;
+        transition: background-color 0.2s;
+    }
+
+    .btn-cancel:hover {
+        background: #cbd5e0;
+    }
+
+    .btn-save:hover {
+        background: #3182ce;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="users-container">
+    <div class="users-header">
+        <h1>Управление пользователями</h1>
+    </div>
+
+    <table class="users-table">
+        <thead>
+            <tr>
+                <th>ID</th>
+                <th>Имя</th>
+                <th>Email</th>
+                <th>Роли</th>
+                <th>Действия</th>
+            </tr>
+        </thead>
+        <tbody id="users-list">
+            <!-- Пользователи будут добавлены через JavaScript -->
+        </tbody>
+    </table>
+</div>
+
+<!-- Модальное окно для управления ролями пользователя -->
+<div id="userModal" class="modal">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h2 id="modalTitle">Управление ролями пользователя</h2>
+            <button class="close-modal" onclick="closeModal()">&times;</button>
+        </div>
+        <form id="userForm" onsubmit="handleSubmit(event)">
+            <input type="hidden" id="userId">
+            <div class="form-group">
+                <h3 id="userName"></h3>
+                <p id="userEmail"></p>
+            </div>
+            <div class="form-group" id="rolesCheckboxes">
+                <!-- Роли будут добавлены через JavaScript -->
+            </div>
+            <div class="form-actions">
+                <button type="button" class="btn-cancel" onclick="closeModal()">Отмена</button>
+                <button type="submit" class="btn-save">Сохранить</button>
+            </div>
+        </form>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+let users = [];
+let roles = [];
+let csrfToken = '';
+
+// Получение CSRF токена
+async function getCsrfToken() {
+    try {
+        const response = await fetch('/csrf-token');
+        if (!response.ok) throw new Error('Failed to get CSRF token');
+        const data = await response.json();
+        csrfToken = data.token;
+        return csrfToken;
+    } catch (error) {
+        console.error('Error getting CSRF token:', error);
+        alert('Ошибка при получении CSRF токена');
+        return null;
+    }
+}
+
+// Загрузка пользователей и ролей при загрузке страницы
+async function loadData() {
+    try {
+        csrfToken = await getCsrfToken();
+        if (!csrfToken) {
+            throw new Error('Failed to get CSRF token');
+        }
+        
+        // Загружаем роли
+        const rolesResponse = await fetch('/admin/roles/api');
+        if (!rolesResponse.ok) throw new Error('Ошибка при загрузке ролей');
+        roles = await rolesResponse.json();
+
+        // Загружаем пользователей
+        const usersResponse = await fetch('/admin/users/api');
+        if (!usersResponse.ok) throw new Error('Ошибка при загрузке пользователей');
+        users = await usersResponse.json();
+
+        renderUsers();
+    } catch (error) {
+        console.error('Error loading data:', error);
+        alert('Произошла ошибка при загрузке данных');
+    }
+}
+
+// Отрисовка таблицы пользователей
+function renderUsers() {
+    const tbody = document.getElementById('users-list');
+    tbody.innerHTML = users.map(user => `
+        <tr>
+            <td>${user.user_id}</td>
+            <td>${user.first_name} ${user.last_name}</td>
+            <td>${user.email}</td>
+            <td>
+                ${user.roles.map(role => `
+                    <span class="role-badge ${role.name}">${role.name}</span>
+                `).join('')}
+            </td>
+            <td>
+                <button class="btn-edit" onclick="openModal(${user.user_id})">
+                    Изменить роли
+                </button>
+            </td>
+        </tr>
+    `).join('');
+}
+
+// Открытие модального окна
+function openModal(userId) {
+    const modal = document.getElementById('userModal');
+    const form = document.getElementById('userForm');
+    const rolesDiv = document.getElementById('rolesCheckboxes');
+    
+    const user = users.find(u => u.user_id === userId);
+    if (!user) return;
+
+    document.getElementById('userId').value = user.user_id;
+    document.getElementById('userName').textContent = `${user.first_name} ${user.last_name}`;
+    document.getElementById('userEmail').textContent = user.email;
+
+    // Создаем чекбоксы для ролей
+    rolesDiv.innerHTML = roles.map(role => `
+        <div class="role-checkbox">
+            <input type="checkbox" 
+                   id="role_${role.role_id}" 
+                   value="${role.role_id}"
+                   ${user.roles.some(r => r.role_id === role.role_id) ? 'checked' : ''}>
+            <label for="role_${role.role_id}">${role.name}</label>
+        </div>
+    `).join('');
+    
+    modal.classList.add('active');
+}
+
+// Закрытие модального окна
+function closeModal() {
+    const modal = document.getElementById('userModal');
+    modal.classList.remove('active');
+}
+
+// Обработка отправки формы
+async function handleSubmit(event) {
+    event.preventDefault();
+    
+    const userId = document.getElementById('userId').value;
+    const selectedRoles = Array.from(document.querySelectorAll('#rolesCheckboxes input:checked'))
+        .map(cb => parseInt(cb.value));
+    
+    try {
+        // Получаем текущие роли пользователя
+        const user = users.find(u => u.user_id === parseInt(userId));
+        const currentRoles = user.roles.map(r => r.role_id);
+
+        // Определяем, какие роли нужно добавить, а какие удалить
+        const rolesToAdd = selectedRoles.filter(r => !currentRoles.includes(r));
+        const rolesToRemove = currentRoles.filter(r => !selectedRoles.includes(r));
+
+        // Добавляем новые роли
+        for (const roleId of rolesToAdd) {
+            const response = await fetch(`/admin/users/${userId}/roles/${roleId}`, {
+                method: 'POST',
+                headers: {
+                    'X-CSRF-Token': csrfToken
+                }
+            });
+            if (!response.ok) throw new Error('Ошибка при добавлении роли');
+        }
+
+        // Удаляем роли
+        for (const roleId of rolesToRemove) {
+            const response = await fetch(`/admin/users/${userId}/roles/${roleId}`, {
+                method: 'DELETE',
+                headers: {
+                    'X-CSRF-Token': csrfToken
+                }
+            });
+            if (!response.ok) throw new Error('Ошибка при удалении роли');
+        }
+
+        await loadData(); // Перезагружаем данные
+        closeModal();
+    } catch (error) {
+        console.error('Error updating roles:', error);
+        alert('Произошла ошибка при обновлении ролей');
+    }
+}
+
+// Закрытие модального окна при клике вне его
+document.getElementById('userModal').addEventListener('click', function(event) {
+    if (event.target === this) {
+        closeModal();
+    }
+});
+
+// Загрузка данных при загрузке страницы
+document.addEventListener('DOMContentLoaded', loadData);
+</script>
+{% endblock %} 

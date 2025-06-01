@@ -1,10 +1,11 @@
 # app/models.py
-from sqlalchemy import Column, Integer, String, Text, Float, ForeignKey, DateTime, Enum
+from sqlalchemy import Column, Integer, String, Text, Float, ForeignKey, DateTime, Enum, JSON
 from sqlalchemy.orm import relationship
 from app.database import Base  # Используем базовый класс для создания моделей
 from sqlalchemy import Column, Integer, String
 from app.database import Base
 import enum
+from datetime import datetime
 
 class User(Base):
     __tablename__ = "users"
@@ -19,6 +20,7 @@ class User(Base):
     password = Column(String, nullable=False)
     
     orders = relationship("Order", back_populates="user")
+    logs = relationship("UserLog", back_populates="user", cascade="all, delete-orphan")
 
 
 class Category(Base):
@@ -75,3 +77,16 @@ class OrderItem(Base):
     
     order = relationship("Order", back_populates="items")
     product = relationship("Product")
+
+class UserLog(Base):
+    __tablename__ = "user_logs"
+
+    log_id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.user_id", ondelete="CASCADE"))
+    action = Column(String(50), nullable=False)
+    old_data = Column(JSON)
+    new_data = Column(JSON)
+    changed_at = Column(DateTime, default=datetime.utcnow)
+
+    # Связь с пользователем
+    user = relationship("User", back_populates="logs")
